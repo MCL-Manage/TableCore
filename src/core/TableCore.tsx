@@ -36,7 +36,6 @@ export default function TableCore(props: TableCoreProps) {
 
   const history = useUndoRedo();
 
-  // ---------- Selection helpers ----------
   const colCount = columns.length;
   const rowCount = rows.length;
 
@@ -71,7 +70,7 @@ export default function TableCore(props: TableCoreProps) {
     return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
   }
 
-  // ---------- Editing ----------
+  // Editing
   function startEditByIndex(rIdx: number, cIdx: number) {
     if (readonly) return;
     const row = rows[rIdx];
@@ -99,7 +98,6 @@ export default function TableCore(props: TableCoreProps) {
     const col = columns.find(c => c.id === colId)!;
     const oldValue = row[colId];
 
-    // validering
     if (col.validate) {
       const err = col.validate(draft, row);
       if (err instanceof Error) {
@@ -130,19 +128,13 @@ export default function TableCore(props: TableCoreProps) {
     const formatted =
       col.format ? col.format(raw, row) : raw === undefined || raw === null ? '' : String(raw);
 
-    const isEditing =
-      editing && editing.rowId === row.id && editing.colId === col.id;
+    const isEditing = editing && editing.rowId === row.id && editing.colId === col.id;
 
-    if (readonly) {
-      return <span>{formatted}</span>;
-    }
+    if (readonly) return <span>{formatted}</span>;
 
     if (!isEditing) {
       return (
-        <div
-          onDoubleClick={() => startEdit(row, col, rIdx, cIdx)}
-          style={{ cursor: 'text' }}
-        >
+        <div onDoubleClick={() => startEdit(row, col, rIdx, cIdx)} style={{ cursor: 'text' }}>
           {formatted}
         </div>
       );
@@ -173,8 +165,7 @@ export default function TableCore(props: TableCoreProps) {
     }
   }
 
-  // ---------- Keyboard & Clipboard ----------
-  // Fokusér container for å fange Ctrl/Cmd + C/V/Z/Y
+  // Keyboard & Clipboard
   React.useEffect(() => {
     rootRef.current?.focus();
   }, [rows.length]);
@@ -262,23 +253,29 @@ export default function TableCore(props: TableCoreProps) {
     props.onCommit?.();
   }
 
-  // Klikkhåndtering for seleksjon (enkelt: klikk = single, Shift+klikk = range)
   function handleCellClick(e: React.MouseEvent, rIdx: number, cIdx: number) {
-    if (e.shiftKey) {
-      setRangeSelection(rIdx, cIdx);
-    } else {
-      setSingleSelection(rIdx, cIdx);
-    }
+    // Hindre nettleserens tekstmarkering for grid
+    e.preventDefault();
+    rootRef.current?.focus();
+    if (e.shiftKey) setRangeSelection(rIdx, cIdx);
+    else setSingleSelection(rIdx, cIdx);
   }
 
   return (
     <div
       ref={rootRef}
+      className="tc-grid"
       tabIndex={0}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       onCopy={onCopy}
-      style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', outline: 'none' }}
+      style={{
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        overflow: 'hidden',
+        outline: 'none',
+        userSelect: 'none',
+      }}
     >
       {/* Header */}
       <div
@@ -289,6 +286,7 @@ export default function TableCore(props: TableCoreProps) {
           borderBottom: '1px solid #e5e7eb',
           fontWeight: 600,
           fontSize: 13,
+          userSelect: 'none',
         }}
       >
         {columns.map(col => (
@@ -312,14 +310,13 @@ export default function TableCore(props: TableCoreProps) {
           >
             {columns.map((col, cIdx) => {
               const selected = isSelectedCell(rIdx, cIdx);
-              const isEditing =
-                editing && editing.rowId === row.id && editing.colId === col.id;
+              const isEditing = editing && editing.rowId === row.id && editing.colId === col.id;
 
               return (
                 <div
                   key={col.id}
                   data-cell={`${row.id}:${col.id}`}
-                  onClick={(e) => handleCellClick(e, rIdx, cIdx)}
+                  onMouseDown={(e) => handleCellClick(e, rIdx, cIdx)}
                   onDoubleClick={() => startEdit(row, col, rIdx, cIdx)}
                   style={{
                     padding: isEditing ? '3px 6px' : '6px 10px',
@@ -331,6 +328,7 @@ export default function TableCore(props: TableCoreProps) {
                     outline: selected ? '2px solid #93c5fd' : 'none',
                     outlineOffset: selected ? -2 : 0,
                     cursor: 'text',
+                    WebkitTapHighlightColor: 'transparent',
                   }}
                 >
                   {renderCell(row, col, rIdx, cIdx)}
@@ -349,7 +347,6 @@ function coerce(type: ColumnDef['type'], text: string) {
     case 'number':
       return text === '' ? undefined : Number(text);
     case 'date':
-      // forventer YYYY-MM-DD
       return text || undefined;
     case 'select':
       return text || '';
