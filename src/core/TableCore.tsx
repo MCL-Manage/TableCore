@@ -31,6 +31,8 @@ export default function TableCore(props: TableCoreProps) {
   const [editing, setEditing] = React.useState<EditingCell | null>(null);
   const [rect, setRect] = React.useState<Rect | null>(null);
   const [anchor, setAnchor] = React.useState<{ r: number; c: number } | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
   const rootRef = React.useRef<HTMLDivElement>(null);
   const tbodyRef = React.useRef<HTMLDivElement>(null);
 
@@ -39,6 +41,7 @@ export default function TableCore(props: TableCoreProps) {
   const colCount = columns.length;
   const rowCount = rows.length;
 
+  // ---------- Selection helpers ----------
   function clamp(v: number, lo: number, hi: number) {
     return Math.max(lo, Math.min(hi, v));
   }
@@ -70,7 +73,36 @@ export default function TableCore(props: TableCoreProps) {
     return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
   }
 
-  // Editing
+  // ---------- Drag-to-select lifecycle ----------
+  React.useEffect(() => {
+    function handleMouseUp() {
+      if (isDragging) setIsDragging(false);
+    }
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [isDragging]);
+
+  function handleCellMouseDown(e: React.MouseEvent, rIdx: number, cIdx: number) {
+    // Hindre tekstmarkering og sørg for fokus
+    e.preventDefault();
+    rootRef.current?.focus();
+
+    if (e.shiftKey) {
+      // hold shift: utvid fra eksisterende anchor
+      setRangeSelection(rIdx, cIdx);
+    } else {
+      // ellers: start ny seleksjon og aktiver drag-modus
+      setSingleSelection(rIdx, cIdx);
+      setIsDragging(true);
+    }
+  }
+
+  function handleCellMouseEnter(_e: React.MouseEvent, rIdx: number, cIdx: number) {
+    if (!isDragging) return;
+    setRangeSelection(rIdx, cIdx);
+  }
+
+  // ---------- Editing ----------
   function startEditByIndex(rIdx: number, cIdx: number) {
     if (readonly) return;
     const row = rows[rIdx];
@@ -81,6 +113,8 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   function startEdit(row: RowLike, col: ColumnDef, rIdx: number, cIdx: number) {
+    // viktig: ikke start redigering hvis bruker nettopp har dratt
+    if (isDragging) return;
     setSingleSelection(rIdx, cIdx);
     startEditByIndex(rIdx, cIdx);
   }
@@ -165,7 +199,7 @@ export default function TableCore(props: TableCoreProps) {
     }
   }
 
-  // Keyboard & Clipboard
+  // ---------- Keyboard & Clipboard ----------
   React.useEffect(() => {
     rootRef.current?.focus();
   }, [rows.length]);
@@ -253,14 +287,6 @@ export default function TableCore(props: TableCoreProps) {
     props.onCommit?.();
   }
 
-  function handleCellClick(e: React.MouseEvent, rIdx: number, cIdx: number) {
-    // Hindre nettleserens tekstmarkering for grid
-    e.preventDefault();
-    rootRef.current?.focus();
-    if (e.shiftKey) setRangeSelection(rIdx, cIdx);
-    else setSingleSelection(rIdx, cIdx);
-  }
-
   return (
     <div
       ref={rootRef}
@@ -316,7 +342,8 @@ export default function TableCore(props: TableCoreProps) {
                 <div
                   key={col.id}
                   data-cell={`${row.id}:${col.id}`}
-                  onMouseDown={(e) => handleCellClick(e, rIdx, cIdx)}
+                  onMouseDown={(e) => handleCellMouseDown(e, rIdx, cIdx)}
+                  onMouseEnter={(e) => handleCellMouseEnter(e, rIdx, cIdx)}
                   onDoubleClick={() => startEdit(row, col, rIdx, cIdx)}
                   style={{
                     padding: isEditing ? '3px 6px' : '6px 10px',
