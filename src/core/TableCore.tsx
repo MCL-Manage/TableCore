@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ColumnDef, Selection, KeyBindings } from '../types';
+import { TextEditor, NumberEditor, DateEditor, SelectEditor, ColorEditor } from './CellEditors';
 import { useClipboard } from './useClipboard';
 import { useUndoRedo, HistoryAction, CellChange } from './useUndoRedo';
 
@@ -18,7 +19,7 @@ export type TableCoreProps = {
   onSelectionChange?: (sel: Selection) => void;
   onCommit?: () => void;
   onReorderRows?: (rowIdsInNewOrder: string[]) => void;
-  onReorderColumns?: (colIdsInNewOrder: string[]) => void; // (plassholder – ikke brukt i denne versjonen)
+  onReorderColumns?: (colIdsInNewOrder: string[]) => void;
 };
 
 type EditingCell = { rowId: string; colId: string; draft: any };
@@ -34,9 +35,9 @@ export default function TableCore(props: TableCoreProps) {
     bodyHeight = 420,
   } = props;
 
+  // Orden
   const [colOrder, setColOrder] = React.useState<string[]>(() => columns.map(c => c.id));
   const [rowOrder, setRowOrder] = React.useState<string[]>(() => rows.map(r => r.id));
-
   React.useEffect(() => {
     setColOrder(prev => {
       const incoming = columns.map(c => c.id);
@@ -45,7 +46,6 @@ export default function TableCore(props: TableCoreProps) {
       return [...kept, ...added];
     });
   }, [columns]);
-
   React.useEffect(() => {
     setRowOrder(prev => {
       const incoming = rows.map(r => r.id);
@@ -64,12 +64,14 @@ export default function TableCore(props: TableCoreProps) {
     [rowOrder, rows]
   );
 
+  // UI-state
   const [editing, setEditing] = React.useState<EditingCell | null>(null);
   const [rect, setRect] = React.useState<Rect | null>(null);
   const [anchor, setAnchor] = React.useState<{ r: number; c: number } | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [scrollTop, setScrollTop] = React.useState(0);
   const [dragRowIdx, setDragRowIdx] = React.useState<number | null>(null);
+  const [dragColIdx, setDragColIdx] = React.useState<number | null>(null);
 
   const rootRef = React.useRef<HTMLDivElement>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
@@ -79,16 +81,15 @@ export default function TableCore(props: TableCoreProps) {
   const colCount = renderColumns.length;
   const rowCount = renderRows.length;
 
-  // ------- Virtualisering -------
-  const total = rowCount;
+  // Virtualisering
   const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - 6);
   const visibleCount = Math.ceil(bodyHeight / rowHeight) + 12;
-  const endIdx = Math.min(total - 1, startIdx + visibleCount - 1);
+  const endIdx = Math.min(rowCount - 1, startIdx + visibleCount - 1);
   const padTop = startIdx * rowHeight;
-  const padBottom = Math.max(0, (total - endIdx - 1) * rowHeight);
+  const padBottom = Math.max(0, (rowCount - endIdx - 1) * rowHeight);
   const windowRows = renderRows.slice(startIdx, endIdx + 1);
 
-  // ------- Seleksjon -------
+  // Seleksjon
   function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
   function setSingleSelection(r: number, c: number) {
     const rIdx = clamp(r, 0, rowCount - 1);
@@ -107,25 +108,24 @@ export default function TableCore(props: TableCoreProps) {
       c0: Math.min(anchor.c, cIdx),
       c1: Math.max(anchor.c, cIdx),
     });
-    const rowRange = Array.from({ length: Math.abs(rIdx - anchor.r) + 1 }, (_, i) => Math.min(anchor.r, rIdx) + i);
-    const colRange = Array.from({ length: Math.abs(cIdx - anchor.c) + 1 }, (_, i) => Math.min(anchor.c, cIdx) + i);
-    props.onSelectionChange?.({ rows: rowRange, cols: colRange });
+    const rowsA = Array.from({ length: Math.abs(rIdx - anchor.r) + 1 }, (_, i) => Math.min(anchor.r, rIdx) + i);
+    const colsA = Array.from({ length: Math.abs(cIdx - anchor.c) + 1 }, (_, i) => Math.min(anchor.c, cIdx) + i);
+    props.onSelectionChange?.({ rows: rowsA, cols: colsA });
   }
   function isSelectedCell(r: number, c: number) {
     if (!rect) return false;
     return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
   }
 
-  // ------- Mouse (markering) -------
+  // Mouse markering
   React.useEffect(() => {
     function handleMouseUp() { if (isDragging) setIsDragging(false); }
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [isDragging]);
-
   function handleCellMouseDown(e: React.MouseEvent, rIdxAbs: number, cIdx: number) {
     e.preventDefault();
-    if (cIdx === -1) return; // #-kolonnen kan ikke markeres
+    if (cIdx === -1) return; // #-kolonnen ikke markerbar
     rootRef.current?.focus();
     if (e.shiftKey) setRangeSelection(rIdxAbs, cIdx);
     else { setSingleSelection(rIdxAbs, cIdx); setIsDragging(true); }
@@ -136,7 +136,7 @@ export default function TableCore(props: TableCoreProps) {
     setRangeSelection(rIdxAbs, cIdx);
   }
 
-  // ------- Dra/slipp RAD via #-kolonnen -------
+  // RAD drag/slipp (via #)
   function onRowDragStart(e: React.DragEvent, fromAbsIdx: number) {
     setDragRowIdx(fromAbsIdx);
     e.dataTransfer.setData('text/plain', String(fromAbsIdx));
@@ -147,7 +147,6 @@ export default function TableCore(props: TableCoreProps) {
     e.preventDefault();
     const fromAbsIdx = dragRowIdx ?? Number(e.dataTransfer.getData('text/plain'));
     if (isNaN(fromAbsIdx) || fromAbsIdx === toAbsIdx) return;
-
     const fromId = renderRows[fromAbsIdx]?.id;
     const toId   = renderRows[toAbsIdx]?.id;
     if (!fromId || !toId) return;
@@ -156,7 +155,6 @@ export default function TableCore(props: TableCoreProps) {
     const fromPos = next.indexOf(fromId);
     const toPos   = next.indexOf(toId);
     if (fromPos === -1 || toPos === -1) return;
-
     const [moved] = next.splice(fromPos, 1);
     next.splice(toPos, 0, moved);
     setRowOrder(next);
@@ -164,12 +162,101 @@ export default function TableCore(props: TableCoreProps) {
     props.onReorderRows?.(next);
   }
 
-  // ------- Clipboard / Navigasjon / Delete -------
-  React.useEffect(() => { rootRef.current?.focus(); }, [rows.length]);
+  // KOLONNE drag/slipp (via header)
+  function onHeaderDragStart(e: React.DragEvent, fromIdx: number) {
+    setDragColIdx(fromIdx);
+    e.dataTransfer.setData('text/plain', String(fromIdx));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function onHeaderDragOver(e: React.DragEvent) { e.preventDefault(); }
+  function onHeaderDrop(e: React.DragEvent, toIdx: number) {
+    e.preventDefault();
+    const fromIdx = dragColIdx ?? Number(e.dataTransfer.getData('text/plain'));
+    if (isNaN(fromIdx) || fromIdx === toIdx) return;
+    const next = [...colOrder];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setColOrder(next);
+    setDragColIdx(null);
+    props.onReorderColumns?.(next);
+  }
 
+  // Redigering
+  function startEditByIndex(rIdxAbs: number, cIdx: number) {
+    if (readonly) return;
+    const row = renderRows[rIdxAbs];
+    if (!row) return;
+    const col = renderColumns[cIdx];
+    const editable = col.editable ? !!col.editable(row) : true;
+    if (!editable) return;
+    setEditing({ rowId: row.id, colId: col.id, draft: row[col.id] });
+  }
+  function startEdit(rIdxAbs: number, cIdx: number) {
+    if (isDragging) return;
+    setSingleSelection(rIdxAbs, cIdx);
+    startEditByIndex(rIdxAbs, cIdx);
+  }
+  function cancelEdit() { setEditing(null); }
+  function commitSingleEdit() {
+    if (!editing) return;
+    const { rowId, colId, draft } = editing;
+    const row = rows.find(r => r.id === rowId);
+    if (!row) return;
+    const col = columns.find(c => c.id === colId)!;
+    const oldValue = row[colId];
+
+    if (col.validate) {
+      const err = col.validate(draft, row);
+      if (err instanceof Error) { blinkCell(rowId, colId, '#fee2e2'); return; }
+    }
+    if (props.onPatch && oldValue !== draft) {
+      const change: CellChange = { rowId, colId, oldValue, nextValue: draft };
+      props.onPatch(change);
+      history.push({ changes: [change] });
+    }
+    setEditing(null);
+    props.onCommit?.();
+  }
+  function blinkCell(rowId: string, colId: string, color: string) {
+    const el = bodyRef.current?.querySelector<HTMLDivElement>(`[data-cell="${rowId}:${colId}"]`);
+    if (!el) return;
+    const prev = el.style.backgroundColor;
+    el.style.backgroundColor = color;
+    setTimeout(() => (el.style.backgroundColor = prev), 250);
+  }
+  function renderCell(row: RowLike, col: ColumnDef, rIdxAbs: number, cIdx: number) {
+    const raw = row[col.id];
+    const formatted = col.format ? col.format(raw, row) : raw == null ? '' : String(raw);
+    const isEditing = editing && editing.rowId === row.id && editing.colId === col.id;
+
+    if (readonly) return <span>{formatted}</span>;
+    if (!isEditing) {
+      return <div onDoubleClick={() => startEdit(rIdxAbs, cIdx)} style={{ cursor: 'text' }}>{formatted}</div>;
+    }
+
+    const commonProps = {
+      value: editing!.draft,
+      autoFocus: true,
+      onChange: (v: any) => setEditing(ec => (ec ? { ...ec, draft: v } : ec)),
+      onEnter: commitSingleEdit,
+      onEscape: cancelEdit,
+      onBlur: commitSingleEdit,
+    };
+
+    switch (col.type) {
+      case 'number': return <NumberEditor {...commonProps} />;
+      case 'date':   return <DateEditor   {...commonProps} />;
+      case 'select': return <SelectEditor {...commonProps} options={col.options ?? []} />;
+      case 'color':  return <ColorEditor  {...commonProps} />;
+      default:       return <TextEditor   {...commonProps} />;
+    }
+  }
+
+  // Clipboard / navigasjon
+  React.useEffect(() => { rootRef.current?.focus(); }, [rows.length]);
   const doCopy = React.useCallback(() => {
     if (!rect) return '';
-    const lines: string[] = [];
+    const out: string[] = [];
     for (let r = rect.r0; r <= rect.r1; r++) {
       const row = renderRows[r];
       const line: string[] = [];
@@ -178,9 +265,9 @@ export default function TableCore(props: TableCoreProps) {
         const val = row[col.id];
         line.push(val == null ? '' : String(val));
       }
-      lines.push(line.join('\t'));
+      out.push(line.join('\t'));
     }
-    return lines.join('\n');
+    return out.join('\n');
   }, [rect, renderRows, renderColumns]);
 
   const doPaste = React.useCallback((data2D: string[][]) => {
@@ -188,15 +275,18 @@ export default function TableCore(props: TableCoreProps) {
     const changes: CellChange[] = [];
     const maxR = Math.min(rect.r0 + data2D.length - 1, rowCount - 1);
     const maxC = Math.min(rect.c0 + (data2D[0]?.length ?? 1) - 1, colCount - 1);
-
     for (let r = rect.r0; r <= maxR; r++) {
       const row = renderRows[r];
       const line = data2D[r - rect.r0] ?? [];
       for (let c = rect.c0; c <= maxC; c++) {
         const txt = line[c - rect.c0] ?? '';
         const col = renderColumns[c];
-        const parsed = coerce(col.type, txt);
+        const parsed = col.parse ? col.parse(txt) : coerce(col.type, txt);
         const oldValue = row[col.id];
+        if (col.validate) {
+          const err = col.validate(parsed, row);
+          if (err instanceof Error) { blinkCell(row.id, col.id, '#fee2e2'); continue; }
+        }
         if (oldValue !== parsed) {
           const ch: CellChange = { rowId: row.id, colId: col.id, oldValue, nextValue: parsed };
           props.onPatch(ch);
@@ -231,7 +321,6 @@ export default function TableCore(props: TableCoreProps) {
     }
     if (changes.length) { history.push({ changes }); props.onCommit?.(); }
   }
-
   function moveCursor(dr: number, dc: number) {
     if (!rect) return;
     const r = clamp((dr >= 0 ? rect.r1 : rect.r0) + dr, 0, rowCount - 1);
@@ -242,11 +331,9 @@ export default function TableCore(props: TableCoreProps) {
     if (y < body.scrollTop) body.scrollTop = y;
     else if (y + rowHeight > body.scrollTop + body.clientHeight) body.scrollTop = y - body.clientHeight + rowHeight;
   }
-
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     onClipboardKeys(e);
     if (e.defaultPrevented) return;
-
     const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
     const ctrl = isMac ? e.metaKey : e.ctrlKey;
 
@@ -257,12 +344,8 @@ export default function TableCore(props: TableCoreProps) {
     if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
     if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
-
-    if (ctrl && e.key.toLowerCase() === 'enter') {
-      if (rect) setSingleSelection(rect.r0, rect.c0); // placeholder for "start edit" i enkel-visning
-    }
+    if (ctrl && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
   }
-
   function applyActionForward(action: HistoryAction) {
     if (!props.onPatch) return;
     for (const ch of action.changes) props.onPatch({ rowId: ch.rowId, colId: ch.colId, oldValue: ch.oldValue, nextValue: ch.nextValue });
@@ -274,7 +357,7 @@ export default function TableCore(props: TableCoreProps) {
     props.onCommit?.();
   }
 
-  // ------- Render helpers -------
+  // Render helpers
   const HEADER_BG = '#0f172a';
   const HEADER_FG = '#e5e7eb';
   const BORDER_H  = '#1f2937';
@@ -287,10 +370,9 @@ export default function TableCore(props: TableCoreProps) {
   function hasValue(v: any) {
     if (v === null || v === undefined) return false;
     if (typeof v === 'string') return v.trim() !== '';
-    return true; // tall, dato, bool m.m. regnes som innhold
+    return true;
   }
   function isRowEmpty(row: RowLike) {
-    // Tom rad = ingen av visningskolonnene har verdi
     return renderColumns.every(col => !hasValue(row[col.id]));
   }
 
@@ -309,7 +391,7 @@ export default function TableCore(props: TableCoreProps) {
         width: '100%',
       }}
     >
-      {/* Header */}
+      {/* Header (draggable columns) */}
       <div
         style={{
           display: 'grid',
@@ -329,14 +411,19 @@ export default function TableCore(props: TableCoreProps) {
           left: 0,
           zIndex: 3,
         }}>#</div>
-
         {renderColumns.map((col, i) => (
           <div
             key={col.id}
+            draggable
+            onDragStart={(e) => onHeaderDragStart(e, i)}
+            onDragOver={onHeaderDragOver}
+            onDrop={(e) => onHeaderDrop(e, i)}
+            title="Dra for å flytte kolonne"
             style={{
               padding: '8px 10px',
               borderRight: i === renderColumns.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
               background: HEADER_BG,
+              cursor: 'grab',
             }}
           >
             {col.header}
@@ -344,7 +431,7 @@ export default function TableCore(props: TableCoreProps) {
         ))}
       </div>
 
-      {/* Body */}
+      {/* Body (virtualized) */}
       <div
         ref={bodyRef}
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
@@ -368,7 +455,7 @@ export default function TableCore(props: TableCoreProps) {
                 lineHeight: `${rowHeight - 12}px`,
               }}
             >
-              {/* # kolonne (drag handle + ev. radnummer) */}
+              {/* # kolonne */}
               <div
                 draggable
                 onDragStart={(e) => onRowDragStart(e, rIdxAbs)}
@@ -382,37 +469,41 @@ export default function TableCore(props: TableCoreProps) {
                   left: 0,
                   background: '#111827',
                   zIndex: 2,
+                  userSelect: 'none',
                 }}
               >
-                {/* Vis nummer bare hvis raden har innhold */}
                 {rowIsEmpty ? '' : (rIdxAbs + 1)}
               </div>
 
               {/* data-celler */}
               {renderColumns.map((col, cIdx) => {
                 const selected = isSelectedCell(rIdxAbs, cIdx);
-                const val = row[col.id];
-                const formatted = col.format ? col.format(val, row) : (val ?? '');
+                const isEditing = editing && editing.rowId === row.id && editing.colId === col.id;
+
                 return (
                   <div
                     key={col.id}
+                    data-cell={`${row.id}:${col.id}`}
                     onMouseDown={(e) => handleCellMouseDown(e, rIdxAbs, cIdx)}
                     onMouseEnter={(e) => handleCellMouseEnter(e, rIdxAbs, cIdx)}
+                    onDoubleClick={() => startEdit(rIdxAbs, cIdx)}
                     style={{
-                      padding: '6px 10px',
+                      padding: isEditing ? '3px 6px' : '6px 10px',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      background: selected ? SEL_FILL : undefined,
+                      background: isEditing ? '#fff' : selected ? SEL_FILL : undefined,
+                      color: isEditing ? '#111827' : undefined,
                       outline: selected ? `1px solid ${SEL_OUTLINE}` : 'none',
                       outlineOffset: selected ? -1 : 0,
                       borderRight: cIdx === renderColumns.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
                       position: freezeFirstColumn && cIdx === 0 ? 'sticky' as const : undefined,
-                      left: freezeFirstColumn && cIdx === 0 ? 40 : undefined,
+                      left: freezeFirstColumn && cIdx === 0 ? 40 : undefined, // tar hensyn til # = 40px
                       zIndex: freezeFirstColumn && cIdx === 0 ? 1 : 0,
+                      backgroundClip: 'padding-box',
                     }}
                   >
-                    {formatted}
+                    {renderCell(row, col, rIdxAbs, cIdx)}
                   </div>
                 );
               })}
@@ -423,24 +514,24 @@ export default function TableCore(props: TableCoreProps) {
       </div>
     </div>
   );
-}
 
-/* helpers */
-function coerce(type: ColumnDef['type'], text: string) {
-  switch (type) {
-    case 'number': return text === '' ? undefined : Number(text.replace(',', '.'));
-    case 'date':   return text || undefined;
-    case 'select': return text || '';
-    case 'color':  return text || '#000000';
-    default:       return text;
+  /* helpers */
+  function coerce(type: ColumnDef['type'], text: string) {
+    switch (type) {
+      case 'number': return text === '' ? undefined : Number(text.replace(',', '.'));
+      case 'date':   return text || undefined;
+      case 'select': return text || '';
+      case 'color':  return text || '#000000';
+      default:       return text;
+    }
   }
-}
-function emptyFor(type: ColumnDef['type']) {
-  switch (type) {
-    case 'number': return undefined;
-    case 'date':   return undefined;
-    case 'select': return '';
-    case 'color':  return '#000000';
-    default:       return '';
+  function emptyFor(type: ColumnDef['type']) {
+    switch (type) {
+      case 'number': return undefined;
+      case 'date':   return undefined;
+      case 'select': return '';
+      case 'color':  return '#000000';
+      default:       return '';
+    }
   }
 }
