@@ -19,6 +19,22 @@ function useKeyHandlers({ onEnter, onEscape }: { onEnter: () => void; onEscape: 
   );
 }
 
+const inputBase: React.CSSProperties = {
+  width: '100%',
+  height: 28,
+  border: '1px solid #e5e7eb',
+  borderRadius: 6,
+  padding: '0 8px',
+  fontSize: 13,
+  outline: 'none',
+  userSelect: 'text', // tillat tekstmarkering i editor
+};
+
+const stop = (e: React.MouseEvent) => {
+  // hindrer at klikk i input trigget grid-seleksjon
+  e.stopPropagation();
+};
+
 export function TextEditor({ value, autoFocus, onChange, onEnter, onEscape, onBlur }: Common) {
   const onKeyDown = useKeyHandlers({ onEnter, onEscape });
   return (
@@ -29,7 +45,8 @@ export function TextEditor({ value, autoFocus, onChange, onEnter, onEscape, onBl
       onChange={e => onChange(e.target.value)}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      style={inputStyle}
+      onMouseDown={stop}
+      style={inputBase}
     />
   );
 }
@@ -44,14 +61,14 @@ export function NumberEditor({ value, autoFocus, onChange, onEnter, onEscape, on
       onChange={e => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      style={inputStyle}
+      onMouseDown={stop}
+      style={inputBase}
     />
   );
 }
 
 export function DateEditor({ value, autoFocus, onChange, onEnter, onEscape, onBlur }: Common) {
   const onKeyDown = useKeyHandlers({ onEnter, onEscape });
-  // forventer YYYY-MM-DD
   return (
     <input
       autoFocus={autoFocus}
@@ -60,7 +77,8 @@ export function DateEditor({ value, autoFocus, onChange, onEnter, onEscape, onBl
       onChange={e => onChange(e.target.value || undefined)}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      style={inputStyle}
+      onMouseDown={stop}
+      style={inputBase}
     />
   );
 }
@@ -82,9 +100,9 @@ export function SelectEditor({
       onChange={e => onChange(e.target.value)}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      style={inputStyle}
+      onMouseDown={stop}
+      style={inputBase}
     >
-      {/* tomt valg for null */}
       <option value=""></option>
       {options.map(o => (
         <option key={o.value} value={o.value}>
@@ -105,17 +123,8 @@ export function ColorEditor({ value, autoFocus, onChange, onEnter, onEscape, onB
       onChange={e => onChange(e.target.value)}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      style={{ ...inputStyle, padding: 0, height: 28 }}
+      onMouseDown={stop}
+      style={{ ...inputBase, padding: 0, height: 28 }}
     />
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  height: 28,
-  border: '1px solid #e5e7eb',
-  borderRadius: 6,
-  padding: '0 8px',
-  fontSize: 13,
-  outline: 'none',
-};
