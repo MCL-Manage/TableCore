@@ -26,3 +26,10 @@ body {
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.25);
 }
+/* Hindre uønsket tekstmarkering i grid, men tillat i inputs */
+.tc-grid, .tc-grid * {
+  user-select: none;
+}
+.tc-grid input, .tc-grid select, .tc-grid textarea {
+  user-select: text;
+}
