@@ -16,6 +16,8 @@ export default function DemoProgress() {
   const [sel, setSel] = React.useState<{ rows: number[]; cols: number[] }>({ rows: [], cols: [] });
   const [saveState, setSaveState] = React.useState<SaveState>('idle');
 
+  const [cols, setCols] = React.useState(getProgressColumns()); // lokal kolonnerekkefølge
+
   const repoRef = React.useRef<ActivityRepo | null>(null);
 
   React.useEffect(() => {
@@ -42,47 +44,18 @@ export default function DemoProgress() {
     })();
   }, []);
 
-  const columns = getProgressColumns();
-
-  async function addRow() {
-    if (!repoRef.current) return;
-    const base = new Date().toISOString().slice(0, 10);
-    const row: Activity = {
-      id: rid(),
-      projectId: DEMO_PROJECT_ID,
-      code: `A-${String(Math.floor(Math.random() * 900 + 100))}`,
-      name: 'Ny aktivitet',
-      start: base,
-      end: base,
-      durationDays: 1,
-      color: '#60a5fa',
-      status: 'planned',
-      rowVersion: 1,
-    };
-    await repoRef.current.create(row);
-    setRows(prev => [...prev, row]);
+  function onReorderColumns(ids: string[]) {
+    // sorter vår columns-array etter ny id-rekkefølge
+    setCols(prev => {
+      const byId = new Map(prev.map(c => [c.id, c]));
+      return ids.map(id => byId.get(id)!).filter(Boolean);
+    });
   }
 
-  async function deleteSelected() {
-    if (!repoRef.current || sel.rows.length === 0) return;
-    // NB: indeksene er relativt enkle – de refererer til nåværende rekkefølge i tabellen
-    const ids = sel.rows.map(i => rows[i]?.id).filter(Boolean) as string[];
-    for (const id of ids) await repoRef.current.delete(id);
-    setRows(prev => prev.filter(r => !ids.includes(r.id)));
-    setSel({ rows: [], cols: [] });
-  }
-
-  function exportCSV() {
-    const header = columns.map(c => c.header).join(',');
-    const lines = rows.map(r => columns.map(c => csvSafe((r as any)[c.id])).join(','));
-    const csv = [header, ...lines].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'activities.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+  function onReorderRows(ids: string[]) {
+    // kun UI-rekkefølge i demo; (senere: lagre sortIndex i repo)
+    const byId = new Map(rows.map(r => [r.id, r]));
+    setRows(ids.map(id => byId.get(id)!).filter(Boolean));
   }
 
   if (loading) return <div>Henter data…</div>;
@@ -104,32 +77,27 @@ export default function DemoProgress() {
       </AppToolbar>
 
       <TableCore
-        columns={columns}
+        columns={cols}
         rows={rows}
         readonly={false}
-        /* Nye TableCore-innstillinger (fra grunnmodellen) */
         freezeFirstColumn={true}
-        enableFilters={true}
         rowHeight={32}
         bodyHeight={420}
         onSelectionChange={(s) => setSel(s)}
+        onReorderColumns={onReorderColumns}
+        onReorderRows={onReorderRows}
         onPatch={async ({ rowId, colId, oldValue, nextValue }) => {
           const current = rows.find(r => r.id === rowId);
           if (!current || !repoRef.current) return;
 
-          // Type-sikkert felt
           const key = colId as keyof Activity;
-
-          // Ny rad med endringen
           const nextRow: Activity = { ...current, [key]: nextValue } as Activity;
 
-          // Domeneregel (start/end/duration)
           const withCanon =
             (key === 'start' || key === 'durationDays' || key === 'end')
               ? applyActivityCanonRule(nextRow, key)
               : nextRow;
 
-          // Optimistisk UI + lagre-indikator
           setSaveState('saving');
           setRows(prev => prev.map(r => (r.id === rowId ? { ...withCanon } : r)));
 
@@ -155,7 +123,6 @@ export default function DemoProgress() {
             if (fresh) setRows(prev => prev.map(r => (r.id === rowId ? fresh : r)));
 
             setSaveState('saved');
-            // liten reset tilbake til "Klar"
             setTimeout(() => setSaveState('idle'), 1200);
           } catch (e) {
             console.error(e);
@@ -169,6 +136,46 @@ export default function DemoProgress() {
       />
     </>
   );
+
+  async function addRow() {
+    if (!repoRef.current) return;
+    const base = new Date().toISOString().slice(0, 10);
+    const row: Activity = {
+      id: rid(),
+      projectId: DEMO_PROJECT_ID,
+      code: `A-${String(Math.floor(Math.random() * 900 + 100))}`,
+      name: 'Ny aktivitet',
+      start: base,
+      end: base,
+      durationDays: 1,
+      color: '#60a5fa',
+      status: 'planned',
+      rowVersion: 1,
+    };
+    await repoRef.current.create(row);
+    setRows(prev => [...prev, row]);
+  }
+
+  async function deleteSelected() {
+    if (!repoRef.current || sel.rows.length === 0) return;
+    const ids = sel.rows.map(i => rows[i]?.id).filter(Boolean) as string[];
+    for (const id of ids) await repoRef.current.delete(id);
+    setRows(prev => prev.filter(r => !ids.includes(r.id)));
+    setSel({ rows: [], cols: [] });
+  }
+
+  function exportCSV() {
+    const header = cols.map(c => c.header).join(',');
+    const lines = rows.map(r => cols.map(c => csvSafe((r as any)[c.id])).join(','));
+    const csv = [header, ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'activities.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
 function addDaysISO(dateISO: string, days: number): string {
