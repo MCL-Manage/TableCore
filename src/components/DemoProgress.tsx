@@ -89,4 +89,13 @@ export default function DemoProgress() {
       onCommit={() => {}}
     />
   );
-// ...
+}
+
+function addDaysISO(dateISO: string, days: number): string {
+  const d = new Date(dateISO);
+  const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + days));
+  const y = nd.getUTCFullYear();
+  const m = String(nd.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(nd.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
