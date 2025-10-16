@@ -61,3 +61,76 @@ body {
   font-size: 12px;
   opacity: 0.8;
 }
+/* Toolbar */
+.app-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: linear-gradient(180deg, rgba(16,24,39,0.9), rgba(16,24,39,0.75));
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.app-toolbar__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-toolbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-toolbar__title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.app-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #0f172a;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px; /* toolbar kan ha rundere hjørner */
+  cursor: pointer;
+  font-size: 13px;
+}
+.app-toolbar__btn:hover { background: #111a2f; }
+.app-toolbar__btn:disabled { opacity: 0.5; cursor: default; }
+
+.app-toolbar__slot { margin-left: 8px; }
+
+.app-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Save indicator */
+.save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.save-indicator__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.save-indicator__text { opacity: 0.85; }
