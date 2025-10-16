@@ -40,20 +40,17 @@ export default function DemoProgress() {
   if (loading) return <div>Henter data…</div>;
 
   const columns = getProgressColumns();
-
   return (
     <TableCore
       columns={columns}
       rows={rows}
+      readonly={false}
       onPatch={async ({ rowId, colId, oldValue, nextValue }) => {
-        // Finn raden
         const current = rows.find(r => r.id === rowId);
         if (!current || !repoRef.current) return;
 
-        // Lag neste rad med endringen
         const nextRow = { ...current, [colId]: nextValue } as Activity;
 
-        // Domeneregel (canon): start/duration -> end, eller end -> duration
         const withCanon = (colId === 'start' || colId === 'durationDays' || colId === 'end')
           ? applyActivityCanonRule(nextRow, colId as keyof Activity)
           : nextRow;
@@ -61,30 +58,30 @@ export default function DemoProgress() {
         // Optimistisk UI
         setRows(prev => prev.map(r => (r.id === rowId ? { ...withCanon } : r)));
 
-        // Persistér (med rowVersion-sjekk)
         try {
-          await repoRef.current.patch(rowId, {
+          await repoRef.current.patch(
             rowId,
-            changes: {
-              [colId]: { old: oldValue, next: nextValue },
-              // dersom canon genererte nytt felt, inkluder det også
-              ...(colId !== 'end' && withCanon.end !== current.end
-                ? { end: { old: current.end, next: withCanon.end } }
-                : {}),
-              ...(colId !== 'durationDays' && withCanon.durationDays !== current.durationDays
-                ? { durationDays: { old: current.durationDays, next: withCanon.durationDays } }
-                : {}),
+            {
+              rowId,
+              changes: {
+                [colId]: { old: oldValue, next: nextValue },
+                ...(colId !== 'end' && withCanon.end !== current.end
+                  ? { end: { old: current.end, next: withCanon.end } }
+                  : {}),
+                ...(colId !== 'durationDays' && withCanon.durationDays !== current.durationDays
+                  ? { durationDays: { old: current.durationDays, next: withCanon.durationDays } }
+                  : {}),
+              },
             },
-          }, { rowVersion: current.rowVersion });
+            { rowVersion: current.rowVersion }
+          );
 
-          // Hent oppdatert rad (inkl. rowVersion++ i repo)
           const fresh = await repoRef.current.get(rowId);
           if (fresh) {
             setRows(prev => prev.map(r => (r.id === rowId ? fresh : r)));
           }
         } catch (e) {
           console.error(e);
-          // Revert ved konflikt/feil
           setRows(prev => prev.map(r => (r.id === rowId ? current : r)));
           alert('Kunne ikke lagre endring (konflikt eller feil).');
         }
@@ -92,13 +89,4 @@ export default function DemoProgress() {
       onCommit={() => {}}
     />
   );
-}
-
-function addDaysISO(dateISO: string, days: number): string {
-  const d = new Date(dateISO);
-  const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + days));
-  const y = nd.getUTCFullYear();
-  const m = String(nd.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(nd.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+// ...
