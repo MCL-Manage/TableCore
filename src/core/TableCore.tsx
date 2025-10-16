@@ -73,7 +73,7 @@ export default function TableCore(props: TableCoreProps) {
     return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
   }
 
-  // ---------- Drag-to-select lifecycle ----------
+  // ---------- Drag-to-select ----------
   React.useEffect(() => {
     function handleMouseUp() {
       if (isDragging) setIsDragging(false);
@@ -83,15 +83,11 @@ export default function TableCore(props: TableCoreProps) {
   }, [isDragging]);
 
   function handleCellMouseDown(e: React.MouseEvent, rIdx: number, cIdx: number) {
-    // Hindre tekstmarkering og sørg for fokus
     e.preventDefault();
     rootRef.current?.focus();
-
     if (e.shiftKey) {
-      // hold shift: utvid fra eksisterende anchor
       setRangeSelection(rIdx, cIdx);
     } else {
-      // ellers: start ny seleksjon og aktiver drag-modus
       setSingleSelection(rIdx, cIdx);
       setIsDragging(true);
     }
@@ -113,7 +109,6 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   function startEdit(row: RowLike, col: ColumnDef, rIdx: number, cIdx: number) {
-    // viktig: ikke start redigering hvis bruker nettopp har dratt
     if (isDragging) return;
     setSingleSelection(rIdx, cIdx);
     startEditByIndex(rIdx, cIdx);
@@ -287,6 +282,14 @@ export default function TableCore(props: TableCoreProps) {
     props.onCommit?.();
   }
 
+  // ---------- Render ----------
+  const HEADER_BG = '#0f172a';     // mørk header
+  const HEADER_FG = '#e5e7eb';     // lys tekst
+  const BORDER_H = '#1f2937';      // vannrette linjer (sterkere)
+  const BORDER_V = '#243041';      // loddrette linjer (svakere)
+  const SEL_OUTLINE = '#93c5fd';   // blå kontur
+  const SEL_FILL = 'rgba(147, 197, 253, 0.15)'; // mye mer gjennomsiktig
+
   return (
     <div
       ref={rootRef}
@@ -296,11 +299,12 @@ export default function TableCore(props: TableCoreProps) {
       onPaste={onPaste}
       onCopy={onCopy}
       style={{
-        border: '1px solid #e5e7eb',
-        borderRadius: 8,
+        border: `1px solid ${BORDER_H}`,
+        borderRadius: 0,      // skarpe hjørner
         overflow: 'hidden',
         outline: 'none',
         userSelect: 'none',
+        width: '100%',
       }}
     >
       {/* Header */}
@@ -308,15 +312,22 @@ export default function TableCore(props: TableCoreProps) {
         style={{
           display: 'grid',
           gridTemplateColumns: columns.map(c => `${c.width ?? 160}px`).join(' '),
-          background: '#f8fafc',
-          borderBottom: '1px solid #e5e7eb',
+          background: HEADER_BG,
+          color: HEADER_FG,
+          borderBottom: `1px solid ${BORDER_H}`,
           fontWeight: 600,
           fontSize: 13,
           userSelect: 'none',
         }}
       >
-        {columns.map(col => (
-          <div key={col.id} style={{ padding: '8px 10px' }}>
+        {columns.map((col, i) => (
+          <div
+            key={col.id}
+            style={{
+              padding: '8px 10px',
+              borderRight: i === columns.length - 1 ? 'none' : `1px solid ${BORDER_V}`, // loddrett
+            }}
+          >
             {col.header}
           </div>
         ))}
@@ -330,7 +341,7 @@ export default function TableCore(props: TableCoreProps) {
             style={{
               display: 'grid',
               gridTemplateColumns: columns.map(c => `${c.width ?? 160}px`).join(' '),
-              borderBottom: '1px solid #f1f5f9',
+              borderBottom: `1px solid ${BORDER_H}`, // vannrett
               fontSize: 13,
             }}
           >
@@ -350,12 +361,13 @@ export default function TableCore(props: TableCoreProps) {
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    background: isEditing ? '#fff' : selected ? '#e6f0ff' : undefined,
+                    background: isEditing ? '#fff' : selected ? SEL_FILL : undefined, // mer transparent
                     color: isEditing ? '#111827' : undefined,
-                    outline: selected ? '2px solid #93c5fd' : 'none',
-                    outlineOffset: selected ? -2 : 0,
+                    outline: selected ? `1px solid ${SEL_OUTLINE}` : 'none', // tynnere outline
+                    outlineOffset: selected ? -1 : 0,
                     cursor: 'text',
                     WebkitTapHighlightColor: 'transparent',
+                    borderRight: cIdx === columns.length - 1 ? 'none' : `1px solid ${BORDER_V}`, // loddrett
                   }}
                 >
                   {renderCell(row, col, rIdx, cIdx)}
