@@ -73,7 +73,7 @@ export default function DemoProgress() {
 
   function exportCSV() {
     const header = columns.map(c => c.header).join(',');
-    const lines = rows.map(r => columns.map(c => csvSafe(r[c.id])).join(','));
+    const lines = rows.map(r => columns.map(c => csvSafe((r as any)[c.id])).join(','));
     const csv = [header, ...lines].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -111,10 +111,15 @@ export default function DemoProgress() {
           const current = rows.find(r => r.id === rowId);
           if (!current || !repoRef.current) return;
 
-          const nextRow = { ...current, [colId]: nextValue } as Activity;
-          const withCanon = (colId === 'start' || colId === 'durationDays' || colId === 'end')
-            ? applyActivityCanonRule(nextRow, colId as keyof Activity)
-            : nextRow;
+          // Sørg for at colId brukes typesikkert mot Activity
+          const key = colId as keyof Activity;
+
+          const nextRow: Activity = { ...current, [key]: nextValue } as Activity;
+
+          const withCanon =
+            (key === 'start' || key === 'durationDays' || key === 'end')
+              ? applyActivityCanonRule(nextRow, key)
+              : nextRow;
 
           // Optimistisk UI + indikator
           setSaveState('saving');
@@ -126,14 +131,14 @@ export default function DemoProgress() {
               {
                 rowId,
                 changes: {
-                  [colId]: { old: oldValue, next: nextValue },
-                  ...(colId !== 'end' && withCanon.end !== current.end
+                  [key]: { old: oldValue, next: nextValue },
+                  ...(key !== 'end' && withCanon.end !== current.end
                     ? { end: { old: current.end, next: withCanon.end } }
                     : {}),
-                  ...(colId !== 'durationDays' && withCanon.durationDays !== current.durationDays
+                  ...(key !== 'durationDays' && withCanon.durationDays !== current.durationDays
                     ? { durationDays: { old: current.durationDays, next: withCanon.durationDays } }
                     : {}),
-                },
+                } as any, // repo-changes er generisk map; casting er ok her
               },
               { rowVersion: current.rowVersion }
             );
