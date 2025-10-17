@@ -4,7 +4,7 @@ import { getProgressColumns, applyActivityCanonRule } from '../adapters/Progress
 import type { Activity } from '../types';
 import { ensureDb } from '../data/initDb';
 import { ActivityRepo } from '../data/ActivityRepo';
-import AppToolbar from './AppToolbar';
+import AppToolbar from '../ui/AppToolbar';
 import SaveIndicator, { SaveState } from './SaveIndicator';
 
 function rid() { return Math.random().toString(36).slice(2, 10); }
