@@ -21,7 +21,7 @@ export type TableCoreProps = {
   onReorderRows?: (rowIds: string[]) => void;
   onReorderColumns?: (colIds: string[]) => void;
 
-  // --- Tree/summary-utvidelser ---
+  // Tree/summary
   treeMode?: boolean;
   showSummaries?: boolean;
   getParentId?: (row: RowLike) => string | null;
@@ -40,11 +40,27 @@ type VisibleRow = {
 
 const PARENT_COL_ID = 'parentId';
 
+// Transparent/flat editor slik at det ikke blir "dobbel" markering
+const editorCss = `
+  .tc-editor, .tc-editor * { box-sizing: border-box; }
+  .tc-editor input, .tc-editor textarea, .tc-editor select {
+    width: 100%; height: 100%;
+    background: transparent !important;
+    color: inherit !important;
+    border: 0 !important;
+    outline: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .tc-editor input:focus, .tc-editor textarea:focus, .tc-editor select:focus {
+    outline: none !important; box-shadow: none !important;
+  }
+`;
+
 export default function TableCore(props: TableCoreProps) {
   const {
-    columns,
-    rows,
-    readonly,
+    columns, rows, readonly,
     freezeFirstColumn = true,
     rowHeight = 32,
     bodyHeight = 420,
@@ -54,35 +70,7 @@ export default function TableCore(props: TableCoreProps) {
     getRowType = (_r: RowLike) => 'data',
   } = props;
 
-  // Små CSS for editorne: transparent bakgrunn i dark-mode
-  // (påvirker input/textarea som rendres av CellEditors)
-const editorCss = `
-  .tc-editor, .tc-editor * {
-    box-sizing: border-box;
-  }
-  .tc-editor input,
-  .tc-editor textarea,
-  .tc-editor select {
-    width: 100%;
-    height: 100%;
-    background: transparent !important;
-    color: inherit !important;
-    border: 0 !important;
-    outline: none !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-  .tc-editor input:focus,
-  .tc-editor textarea:focus,
-  .tc-editor select:focus {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-`;
-
-
-  // ----- Orden (kolonner/rader) -----
+  // Orden
   const [colOrder, setColOrder] = React.useState(() => columns.map(c => c.id));
   const [rowOrder, setRowOrder] = React.useState(() => rows.map(r => r.id));
   React.useEffect(() => {
@@ -96,7 +84,7 @@ const editorCss = `
 
   const allCols = colOrder.map(id => columns.find(c => c.id === id)!).filter(Boolean);
 
-  // ----- Build tree + visible list -----
+  // Tree build
   const idToRow = React.useMemo(() => {
     const m = new Map<string, RowLike>();
     for (const r of rows) m.set(r.id, r);
@@ -111,46 +99,34 @@ const editorCss = `
 
   const childrenOf = React.useMemo(() => {
     const m = new Map<string | null, string[]>();
-    function add(parent: string | null, id: string) {
-      const arr = m.get(parent) ?? [];
-      arr.push(id);
-      m.set(parent, arr);
+    function add(p: string | null, id: string) {
+      const arr = m.get(p) ?? [];
+      arr.push(id); m.set(p, arr);
     }
     for (const id of rowOrder) {
-      const r = idToRow.get(id);
-      if (!r) continue;
-      const p = getParentId(r);
-      add(p, id);
+      const r = idToRow.get(id); if (!r) continue;
+      add(getParentId(r), id);
     }
     return m;
   }, [rowOrder, idToRow, getParentId]);
 
-  // expanded state
   const [expanded, setExpanded] = React.useState<Set<string>>(() => {
     const s = new Set<string>();
     for (const id of rowOrder) {
-      const hasKids = (childrenOf.get(id)?.length ?? 0) > 0;
-      if (hasKids) s.add(id);
+      if ((childrenOf.get(id)?.length ?? 0) > 0) s.add(id);
     }
     return s;
   });
   React.useEffect(() => {
     setExpanded(prev => {
-      const next = new Set(prev);
-      for (const id of rowOrder) {
-        const hasKids = (childrenOf.get(id)?.length ?? 0) > 0;
-        if (hasKids && !next.has(id)) next.add(id);
-      }
-      return next;
+      const n = new Set(prev);
+      for (const id of rowOrder) if ((childrenOf.get(id)?.length ?? 0) > 0) n.add(id);
+      return n;
     });
   }, [rowOrder, childrenOf]);
 
   const toggleExpand = (id: string) => {
-    setExpanded(prev => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      return n;
-    });
+    setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
   const visible: VisibleRow[] = React.useMemo(() => {
@@ -163,42 +139,34 @@ const editorCss = `
     }
     const out: VisibleRow[] = [];
     function walk(id: string, level: number) {
-      const r = idToRow.get(id);
-      if (!r) return;
+      const r = idToRow.get(id); if (!r) return;
       const kids = childrenOf.get(id) ?? [];
       const isSummary = getRowType(r) === 'summary';
       const hasChildren = kids.length > 0;
       if (!(isSummary && !showSummaries)) out.push({ row: r, level, hasChildren, isSummary });
-      if (hasChildren && expanded.has(id)) {
-        for (const cid of kids) walk(cid, level + 1);
-      }
+      if (hasChildren && expanded.has(id)) for (const k of kids) walk(k, level + 1);
     }
     const roots = childrenOf.get(null) ?? [];
     for (const rid of roots) walk(rid, 0);
     return out;
   }, [treeMode, rowOrder, idToRow, childrenOf, expanded, getRowType, showSummaries]);
 
-  // ----- UI-state -----
+  // UI-state
   const [editing, setEditing] = React.useState<EditingCell | null>(null);
   const [rect, setRect] = React.useState<Rect | null>(null);
   const [anchor, setAnchor] = React.useState<{ r: number; c: number } | null>(null);
-
   const [isDraggingRange, setIsDraggingRange] = React.useState(false);
   const dragStartRef = React.useRef<{ x: number; y: number; r: number; c: number } | null>(null);
-
   const [scrollTop, setScrollTop] = React.useState(0);
   const [dragRowIdx, setDragRowIdx] = React.useState<number | null>(null);
   const [dragColIdx, setDragColIdx] = React.useState<number | null>(null);
-
   const rootRef = React.useRef<HTMLDivElement>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
-
   const history = useUndoRedo();
 
-  // ----- Virtualisering (på synlige rader) -----
+  // Virtualisering
   const rowCount = visible.length;
   const colCount = allCols.length;
-
   const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - 6);
   const visibleCount = Math.ceil(bodyHeight / rowHeight) + 12;
   const endIdx = Math.min(rowCount - 1, startIdx + visibleCount - 1);
@@ -206,7 +174,7 @@ const editorCss = `
   const padBottom = Math.max(0, (rowCount - endIdx - 1) * rowHeight);
   const windowRows = visible.slice(startIdx, endIdx + 1);
 
-  // ----- Seleksjon -----
+  // Seleksjon
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
   function setSingle(r: number, c: number) {
     const rIdx = clamp(r, 0, rowCount - 1);
@@ -224,13 +192,15 @@ const editorCss = `
     const c0 = Math.min(anchor.c, cIdx);
     const c1 = Math.max(anchor.c, cIdx);
     setRect({ r0, r1, c0, c1 });
-    const rowRange = Array.from({ length: r1 - r0 + 1 }, (_, i) => r0 + i);
-    const colRange = Array.from({ length: c1 - c0 + 1 }, (_, i) => c0 + i);
-    props.onSelectionChange?.({ rows: rowRange, cols: colRange });
+    props.onSelectionChange?.({
+      rows: Array.from({ length: r1 - r0 + 1 }, (_, i) => r0 + i),
+      cols: Array.from({ length: c1 - c0 + 1 }, (_, i) => c0 + i)
+    });
   }
   const isSel = (r: number, c: number) => !!rect && r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
 
-  // Global mouse-up: skiller klikk vs. drag (4px terskel)
+  // Fokus sikres: klikk inne i grid gir fokus til root
+  const focusRoot = () => rootRef.current?.focus();
   React.useEffect(() => {
     function onMouseUp(e: MouseEvent) {
       const st = dragStartRef.current;
@@ -246,15 +216,11 @@ const editorCss = `
     return () => window.removeEventListener('mouseup', onMouseUp);
   }, [editing]);
 
-  // ----- Redigering -----
+  // Redigering
   function startEdit(rIdxAbs: number, cIdx: number) {
     if (readonly) return;
-    const v = visible[rIdxAbs];
-    if (!v) return;
-    if (v.isSummary) return;
-    const row = v.row;
-    const col = allCols[cIdx];
-    if (!row || !col) return;
+    const v = visible[rIdxAbs]; if (!v || v.isSummary) return;
+    const row = v.row; const col = allCols[cIdx]; if (!row || !col) return;
     const editable = col.editable ? !!col.editable(row) : true;
     if (!editable) return;
     setEditing({ rowId: row.id, colId: col.id, draft: row[col.id] });
@@ -282,7 +248,7 @@ const editorCss = `
     }
   }
 
-  // ----- Clipboard / Undo/Redo -----
+  // Clipboard/Undo
   const doCopy = React.useCallback(() => {
     if (!rect) return '';
     const out: string[] = [];
@@ -333,7 +299,7 @@ const editorCss = `
     onRedo: () => { const a = history.redo(); if (a) applyActionForward(a); },
   });
 
-  // ----- Delete / Navigasjon + TREE HOTKEYS -----
+  // Delete/Navigasjon + Tree-hotkeys (med Capture & fokus fikser)
   function clearSelectionWithDelete() {
     if (!rect || !props.onPatch) return;
     const changes: CellChange[] = [];
@@ -363,108 +329,42 @@ const editorCss = `
     else if (y + rowHeight > body.scrollTop + body.clientHeight) body.scrollTop = y - body.clientHeight + rowHeight;
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-  onClipboardKeys(e);
-  if (e.defaultPrevented) return;
+  function handleKeyDownCapture(e: React.KeyboardEvent<HTMLDivElement>) {
+    onClipboardKeys(e);
+    if (e.defaultPrevented) return;
 
-  // Hvis vi redigerer: Enter = commit
-  if (editing) {
-    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-    return;
-  }
-
-  const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
-  const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
-
-  // Slett / Tab / Enter (vanlig grid)
-  if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
-  if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
-  if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
-
-  // --- Tree-modus KOMBOER først ---
-  if (treeMode) {
-    const selIdx = rect?.r0 ?? 0;
-    const v = visible[selIdx];
-
-    if (v) {
-      // Ctrl/Cmd + venstre/høyre = kollaps/ekspander
-      if (ctrlOrCmd && e.key === 'ArrowRight') {
-        e.preventDefault();
-        if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
-        return;
-      }
-      if (ctrlOrCmd && e.key === 'ArrowLeft') {
-        e.preventDefault();
-        if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
-        return;
-      }
-
-      // Alt + piltaster = inn/ut og flytt opp/ned
-      if (e.altKey && e.key === 'ArrowRight') {
-        e.preventDefault(); indentRow(v.row.id, selIdx); return;
-      }
-      if (e.altKey && e.key === 'ArrowLeft') {
-        e.preventDefault(); outdentRow(v.row.id); return;
-      }
-      if (e.altKey && e.key === 'ArrowUp') {
-        e.preventDefault(); moveRowWithinParent(v.row.id, -1); return;
-      }
-      if (e.altKey && e.key === 'ArrowDown') {
-        e.preventDefault(); moveRowWithinParent(v.row.id, +1); return;
-      }
-    }
-  }
-
-  // --- Vanlig piltast-navigasjon (alltid til slutt) ---
-  if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
-  if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
-  if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
-  if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
-
-  // Ctrl/Cmd+Enter = start edit (quality-of-life)
-  if (ctrlOrCmd && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
-}
-
-
-    if (!treeMode) return;
-
-    // --- Tree-modus: Ctrl/Cmd + venstre/høyre = kollaps/ekspander
-    const selIdx = rect?.r0 ?? 0;
-    const v = visible[selIdx];
-    if (!v) return;
-
-    if (ctrlOrCmd && e.key === 'ArrowRight') {
-      e.preventDefault();
-      if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
-      return;
-    }
-    if (ctrlOrCmd && e.key === 'ArrowLeft') {
-      e.preventDefault();
-      if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
+    if (editing) {
+      if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
       return;
     }
 
-    // Alt+pil = strukturell flytting
-    if (e.altKey && e.key === 'ArrowRight') {
-      e.preventDefault();
-      indentRow(v.row.id, selIdx);
-      return;
+    const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
+    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+    // Slett/Tab/Enter
+    if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
+    if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
+    if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+
+    // Tree-kombinasjoner først
+    if (treeMode) {
+      const selIdx = rect?.r0 ?? 0;
+      const v = visible[selIdx];
+      if (v) {
+        if (ctrlOrCmd && e.key === 'ArrowRight') { e.preventDefault(); if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id); return; }
+        if (ctrlOrCmd && e.key === 'ArrowLeft')  { e.preventDefault(); if (v.hasChildren &&  expanded.has(v.row.id)) toggleExpand(v.row.id); return; }
+        if (e.altKey && e.key === 'ArrowRight')  { e.preventDefault(); indentRow(v.row.id, selIdx); return; }
+        if (e.altKey && e.key === 'ArrowLeft')   { e.preventDefault(); outdentRow(v.row.id); return; }
+        if (e.altKey && e.key === 'ArrowUp')     { e.preventDefault(); moveRowWithinParent(v.row.id, -1); return; }
+        if (e.altKey && e.key === 'ArrowDown')   { e.preventDefault(); moveRowWithinParent(v.row.id, +1); return; }
+      }
     }
-    if (e.altKey && e.key === 'ArrowLeft') {
-      e.preventDefault();
-      outdentRow(v.row.id);
-      return;
-    }
-    if (e.altKey && e.key === 'ArrowUp') {
-      e.preventDefault();
-      moveRowWithinParent(v.row.id, -1);
-      return;
-    }
-    if (e.altKey && e.key === 'ArrowDown') {
-      e.preventDefault();
-      moveRowWithinParent(v.row.id, +1);
-      return;
-    }
+
+    // Vanlig navigasjon til slutt
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
   }
 
   function applyActionForward(action: HistoryAction) {
@@ -478,7 +378,7 @@ const editorCss = `
     props.onCommit?.();
   }
 
-  // ----- Render helpers -----
+  // Render helpers
   const HEADER_BG = '#0f172a', HEADER_FG = '#e5e7eb';
   const BORDER_H = '#1f2937', BORDER_V = '#243041';
   const SEL_OUT = '#93c5fd', SEL_FILL = 'rgba(147,197,253,0.15)';
@@ -488,11 +388,11 @@ const editorCss = `
     return v === null || v === undefined || (typeof v === 'string' ? v.trim() === '' : false);
   });
 
-  // ----- Cellehendelser -----
+  // Mus-hendelser celler
   function onCellMouseDown(e: React.MouseEvent, rAbs: number, cIdx: number) {
     if (cIdx === -1) return;
     e.preventDefault();
-    rootRef.current?.focus();
+    focusRoot();
     setSingle(rAbs, cIdx);
     setIsDraggingRange(true);
     dragStartRef.current = { x: e.clientX, y: e.clientY, r: rAbs, c: cIdx };
@@ -503,6 +403,7 @@ const editorCss = `
     setRange(rAbs, cIdx);
   }
   function onCellDoubleClick(_e: React.MouseEvent, rAbs: number, cIdx: number) {
+    focusRoot();
     startEdit(rAbs, cIdx);
     setTimeout(() => {
       const el = bodyRef.current?.querySelector('input, textarea, select') as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
@@ -510,7 +411,7 @@ const editorCss = `
     }, 30);
   }
 
-  // ----- Drag/slipp kolonner (header) -----
+  // Kolonner drag
   function onHeaderDragStart(e: React.DragEvent, i: number) {
     setDragColIdx(i);
     e.dataTransfer.setData('text/plain', String(i));
@@ -528,7 +429,7 @@ const editorCss = `
     setDragColIdx(null);
   }
 
-  // ----- Drag/slipp rader (via #) -----
+  // Rader drag (via #)
   function onRowDragStart(e: React.DragEvent, idx: number) {
     const v = visible[idx];
     if (!v || v.isSummary) return;
@@ -543,14 +444,11 @@ const editorCss = `
 
     const vFrom = visible[from];
     let vTo = visible[to];
-
     if (!vFrom || !vTo) return;
     if (vTo.isSummary) {
       const alt = visible.slice(0, to).reverse().find(v => !v.isSummary);
-      if (!alt) return;
-      vTo = alt;
+      if (!alt) return; vTo = alt;
     }
-
     if (treeMode) {
       const pFrom = parentOf.get(vFrom.row.id) ?? null;
       const pTo = parentOf.get(vTo.row.id) ?? null;
@@ -568,21 +466,20 @@ const editorCss = `
     setDragRowIdx(null);
   }
 
-  // ----- Render -----
+  // Typografi pr nivå
   const baseFont = 13;
-  function fontSizeForLevel(level: number) { return level >= 2 ? baseFont - 2 : baseFont; }
-  function fontWeightFor(hasChildren: boolean) { return hasChildren ? 700 : 400; }
-  function fontStyleFor(level: number) { return level >= 1 ? 'italic' as const : 'normal' as const; }
+  const fontSizeForLevel = (lvl: number) => (lvl >= 2 ? baseFont - 2 : baseFont);
+  const fontWeightFor = (hasChildren: boolean) => (hasChildren ? 700 : 400);
+  const fontStyleFor = (lvl: number) => (lvl >= 1 ? 'italic' as const : 'normal' as const);
 
   return (
     <div
       ref={rootRef}
       tabIndex={0}
-      onKeyDown={handleKeyDown}
-      onPaste={onPaste}
-      onCopy={onCopy}
+      onKeyDownCapture={handleKeyDownCapture}
+      onMouseDown={focusRoot}
       style={{
-        border: `1px solid #1f2937`,
+        border: `1px solid ${BORDER_H}`,
         borderRadius: 0,
         width: '100%',
         overflow: 'hidden',
@@ -635,6 +532,7 @@ const editorCss = `
       <div
         ref={bodyRef}
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        onMouseDown={focusRoot}
         style={{ height: bodyHeight, overflow: 'auto' }}
       >
         <div style={{ height: padTop }} />
@@ -663,7 +561,7 @@ const editorCss = `
                 fontSize: fontSizeForLevel(v.level),
               }}
             >
-              {/* # kolonne (caret + drag handle + nummer) */}
+              {/* # kolonne: caret + drag + nummer */}
               <div
                 draggable={!isSummary}
                 onDragStart={(e) => onRowDragStart(e, rAbs)}
@@ -682,23 +580,15 @@ const editorCss = `
                   zIndex: 2,
                   padding: '0 4px',
                 }}
+                onMouseDown={(e) => { e.stopPropagation(); focusRoot(); }}
               >
                 {treeMode ? (
                   <span
                     onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (v.hasChildren) toggleExpand(r.id);
-                    }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (v.hasChildren) toggleExpand(r.id); }}
                     style={{
-                      fontSize: 10,
-                      lineHeight: '10px',
-                      width: 10,
-                      textAlign: 'center',
-                      opacity: v.hasChildren ? 0.9 : 0.25,
-                      cursor: v.hasChildren ? 'pointer' : 'default',
-                      userSelect: 'none',
+                      fontSize: 10, lineHeight: '10px', width: 10, textAlign: 'center',
+                      opacity: v.hasChildren ? 0.9 : 0.25, cursor: v.hasChildren ? 'pointer' : 'default', userSelect: 'none',
                     }}
                     title={v.hasChildren ? (expanded.has(r.id) ? 'Kollaps' : 'Ekspander') : undefined}
                   >
@@ -724,17 +614,14 @@ const editorCss = `
                     onMouseEnter={(e) => onCellMouseEnter(e, rAbs, cIdx)}
                     onDoubleClick={(e) => onCellDoubleClick(e, rAbs, cIdx)}
                     style={{
-                      padding: '6px 10px',
+                      padding: '6px 10px', // samme uansett, så editor fyller cella
                       borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      // ⬇️ Ikke bytt til hvit bakgrunn ved redigering
-                      background: cellSelected ? SEL_FILL : undefined,
+                      background: cellSelected ? SEL_FILL : undefined, // ikke hvit ved redigering
                       outline: cellSelected ? `1px solid ${SEL_OUT}` : 'none',
                       outlineOffset: -1,
-                      // Ikke tving svart tekst i dark mode når vi redigerer
-                      color: undefined,
                       position: freezeFirstColumn && cIdx === 0 ? 'sticky' as const : undefined,
                       left: freezeFirstColumn && cIdx === 0 ? 40 : undefined,
                       zIndex: freezeFirstColumn && cIdx === 0 ? 1 : 0,
@@ -765,7 +652,7 @@ const editorCss = `
     </div>
   );
 
-  // ----- helpers -----
+  // helpers
   function coerce(type: ColumnDef['type'], text: string) {
     switch (type) {
       case 'number': return text === '' ? undefined : Number(text.replace(',', '.'));
@@ -795,7 +682,7 @@ const editorCss = `
     props.onCommit?.();
   }
 
-  // ----- TREE mutasjoner (via onPatch) -----
+  // Tree mutasjoner
   function setParent(rowId: string, newParentId: string | null) {
     const oldParent = parentOf.get(rowId) ?? null;
     if (oldParent === newParentId) return;
