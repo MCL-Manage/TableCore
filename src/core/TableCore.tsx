@@ -56,18 +56,31 @@ export default function TableCore(props: TableCoreProps) {
 
   // Små CSS for editorne: transparent bakgrunn i dark-mode
   // (påvirker input/textarea som rendres av CellEditors)
-  const editorCss = `
-    .tc-editor input, .tc-editor textarea, .tc-editor select {
-      background: transparent !important;
-      color: inherit !important;
-      border-color: #374151;
-    }
-    .tc-editor input:focus, .tc-editor textarea:focus, .tc-editor select:focus {
-      outline: none;
-      box-shadow: none;
-      border-color: #93c5fd;
-    }
-  `;
+const editorCss = `
+  .tc-editor, .tc-editor * {
+    box-sizing: border-box;
+  }
+  .tc-editor input,
+  .tc-editor textarea,
+  .tc-editor select {
+    width: 100%;
+    height: 100%;
+    background: transparent !important;
+    color: inherit !important;
+    border: 0 !important;
+    outline: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .tc-editor input:focus,
+  .tc-editor textarea:focus,
+  .tc-editor select:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+`;
+
 
   // ----- Orden (kolonner/rader) -----
   const [colOrder, setColOrder] = React.useState(() => columns.map(c => c.id));
@@ -351,27 +364,67 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    onClipboardKeys(e);
-    if (e.defaultPrevented) return;
+  onClipboardKeys(e);
+  if (e.defaultPrevented) return;
 
-    if (editing) {
-      if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-      return;
+  // Hvis vi redigerer: Enter = commit
+  if (editing) {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+    return;
+  }
+
+  const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
+  const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+  // Slett / Tab / Enter (vanlig grid)
+  if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
+  if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
+  if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+
+  // --- Tree-modus KOMBOER først ---
+  if (treeMode) {
+    const selIdx = rect?.r0 ?? 0;
+    const v = visible[selIdx];
+
+    if (v) {
+      // Ctrl/Cmd + venstre/høyre = kollaps/ekspander
+      if (ctrlOrCmd && e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
+        return;
+      }
+      if (ctrlOrCmd && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
+        return;
+      }
+
+      // Alt + piltaster = inn/ut og flytt opp/ned
+      if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault(); indentRow(v.row.id, selIdx); return;
+      }
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault(); outdentRow(v.row.id); return;
+      }
+      if (e.altKey && e.key === 'ArrowUp') {
+        e.preventDefault(); moveRowWithinParent(v.row.id, -1); return;
+      }
+      if (e.altKey && e.key === 'ArrowDown') {
+        e.preventDefault(); moveRowWithinParent(v.row.id, +1); return;
+      }
     }
+  }
 
-    const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
-    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+  // --- Vanlig piltast-navigasjon (alltid til slutt) ---
+  if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
+  if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
 
-    // Vanlige grid-taster
-    if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
-    if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
-    if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+  // Ctrl/Cmd+Enter = start edit (quality-of-life)
+  if (ctrlOrCmd && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
+}
 
-    // Navigasjon med piltaster (ALLTID navigasjon nå)
-    if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
-    if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
 
     if (!treeMode) return;
 
@@ -671,7 +724,7 @@ export default function TableCore(props: TableCoreProps) {
                     onMouseEnter={(e) => onCellMouseEnter(e, rAbs, cIdx)}
                     onDoubleClick={(e) => onCellDoubleClick(e, rAbs, cIdx)}
                     style={{
-                      padding: isEditing ? '3px 6px' : '6px 10px',
+                      padding: '6px 10px',
                       borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
