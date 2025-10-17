@@ -38,7 +38,7 @@ type VisibleRow = {
   isSummary: boolean;
 };
 
-const PARENT_COL_ID = 'parentId'; // ← endre hvis du bruker annet feltnavn enn "parentId"
+const PARENT_COL_ID = 'parentId'; // endre hvis du bruker annet feltnavn
 
 export default function TableCore(props: TableCoreProps) {
   const {
@@ -133,7 +133,6 @@ export default function TableCore(props: TableCoreProps) {
         .map(r => ({ row: r!, level: 0, hasChildren: false, isSummary: getRowType(r!) === 'summary' }))
         .filter(v => showSummaries || !v.isSummary);
     }
-
     const out: VisibleRow[] = [];
     function walk(id: string, level: number) {
       const r = idToRow.get(id);
@@ -141,10 +140,7 @@ export default function TableCore(props: TableCoreProps) {
       const kids = childrenOf.get(id) ?? [];
       const isSummary = getRowType(r) === 'summary';
       const hasChildren = kids.length > 0;
-
-      if (!(isSummary && !showSummaries)) {
-        out.push({ row: r, level, hasChildren, isSummary });
-      }
+      if (!(isSummary && !showSummaries)) out.push({ row: r, level, hasChildren, isSummary });
       if (hasChildren && expanded.has(id)) {
         for (const cid of kids) walk(cid, level + 1);
       }
@@ -214,8 +210,7 @@ export default function TableCore(props: TableCoreProps) {
       const dx = Math.abs(e.clientX - st.x);
       const dy = Math.abs(e.clientY - st.y);
       const moved = dx > 4 || dy > 4;
-
-      if (!moved && !editing) startEdit(st.r, st.c); // rent klikk → start redigering
+      if (!moved && !editing) startEdit(st.r, st.c);
       setIsDraggingRange(false);
       dragStartRef.current = null;
     }
@@ -228,7 +223,7 @@ export default function TableCore(props: TableCoreProps) {
     if (readonly) return;
     const v = visible[rIdxAbs];
     if (!v) return;
-    if (v.isSummary) return; // oppsummeringsrader er ikke redigerbare
+    if (v.isSummary) return;
     const row = v.row;
     const col = allCols[cIdx];
     if (!row || !col) return;
@@ -357,6 +352,7 @@ export default function TableCore(props: TableCoreProps) {
     if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
     if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
     if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+
     if (!treeMode) {
       if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
       if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
@@ -371,17 +367,17 @@ export default function TableCore(props: TableCoreProps) {
     const v = visible[selIdx];
     if (!v) return;
 
-    // Piltaster uten Alt = expand/collapse
+    // Piltaster uten Alt = expand/collapse ellers vanlig
     if (!e.altKey && e.key === 'ArrowRight') {
       e.preventDefault();
       if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
-      else moveCursor(0, 1); // ellers normal høyre
+      else moveCursor(0, 1);
       return;
     }
     if (!e.altKey && e.key === 'ArrowLeft') {
       e.preventDefault();
       if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
-      else moveCursor(0, -1); // ellers normal venstre
+      else moveCursor(0, -1);
       return;
     }
 
@@ -504,7 +500,7 @@ export default function TableCore(props: TableCoreProps) {
     if (treeMode) {
       const pFrom = parentOf.get(vFrom.row.id) ?? null;
       const pTo = parentOf.get(vTo.row.id) ?? null;
-      if (pFrom !== pTo) return; // ignorer flytt over grenser
+      if (pFrom !== pTo) return;
     }
 
     const next = [...rowOrder];
@@ -518,6 +514,18 @@ export default function TableCore(props: TableCoreProps) {
     setDragRowIdx(null);
   }
 
+  // ----- Render -----
+  const baseFont = 13; // px
+  function fontSizeForLevel(level: number) {
+    return level >= 2 ? baseFont - 2 : baseFont; // level2+ blir mindre
+  }
+  function fontWeightFor(hasChildren: boolean) {
+    return hasChildren ? 700 : 400; // forelder = fet
+  }
+  function fontStyleFor(level: number) {
+    return level >= 1 ? 'italic' as const : 'normal' as const; // child = kursiv
+  }
+
   return (
     <div
       ref={rootRef}
@@ -526,33 +534,33 @@ export default function TableCore(props: TableCoreProps) {
       onPaste={onPaste}
       onCopy={onCopy}
       style={{
-        border: `1px solid ${BORDER_H}`,
+        border: `1px solid #1f2937`,
         borderRadius: 0,
         width: '100%',
         overflow: 'hidden',
-        userSelect: editing ? 'text' : 'none', // ingen tekstmarkering i grid-modus
+        userSelect: editing ? 'text' : 'none',
         outline: 'none',
       }}
     >
-      {/* Header (draggable columns) */}
+      {/* Header */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: gridCols,
-          background: HEADER_BG,
-          color: HEADER_FG,
-          borderBottom: `1px solid ${BORDER_H}`,
+          background: '#0f172a',
+          color: '#e5e7eb',
+          borderBottom: `1px solid #1f2937`,
           fontWeight: 600,
           fontSize: 13,
         }}
       >
         <div style={{
           textAlign: 'center',
-          borderRight: `1px solid ${BORDER_V}`,
+          borderRight: `1px solid #243041`,
           position: 'sticky',
           left: 0,
           zIndex: 3,
-          background: HEADER_BG,
+          background: '#0f172a',
         }}>#</div>
         {allCols.map((c, i) => (
           <div
@@ -563,9 +571,9 @@ export default function TableCore(props: TableCoreProps) {
             onDrop={(e) => onHeaderDrop(e, i)}
             style={{
               padding: '8px 10px',
-              borderRight: i === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
+              borderRight: i === allCols.length - 1 ? 'none' : `1px solid #243041`,
               cursor: 'grab',
-              background: HEADER_BG,
+              background: '#0f172a',
             }}
           >
             {c.header}
@@ -586,7 +594,6 @@ export default function TableCore(props: TableCoreProps) {
           const isSummary = v.isSummary;
           const empty = isEmptyRow(r);
           const indentPx = v.level * 16;
-          const caret = v.hasChildren ? (expanded.has(r.id) ? '▼' : '▶') : '•';
 
           return (
             <div
@@ -596,30 +603,61 @@ export default function TableCore(props: TableCoreProps) {
               style={{
                 display: 'grid',
                 gridTemplateColumns: gridCols,
-                borderBottom: `1px solid ${BORDER_H}`,
+                borderBottom: `1px solid #1f2937`,
                 height: rowHeight,
                 lineHeight: `${rowHeight - 10}px`,
                 background: isSummary ? '#0d1324' : undefined,
                 opacity: isSummary ? 0.95 : 1,
+                // typografi for hele raden:
+                fontWeight: fontWeightFor(v.hasChildren),
+                fontStyle: fontStyleFor(v.level),
+                fontSize: fontSizeForLevel(v.level),
               }}
             >
-              {/* # kolonne (drag handle) */}
+              {/* # kolonne (caret + drag handle + nummer) */}
               <div
                 draggable={!isSummary}
                 onDragStart={(e) => onRowDragStart(e, rAbs)}
                 title={isSummary ? 'Oppsummeringsrad' : 'Dra for å flytte rad'}
                 style={{
-                  textAlign: 'center',
-                  borderRight: `1px solid ${BORDER_V}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  justifyContent: 'center',
+                  borderRight: `1px solid #243041`,
                   background: '#111827',
                   color: '#9ca3af',
                   cursor: isSummary ? 'default' : 'grab',
                   position: 'sticky',
                   left: 0,
                   zIndex: 2,
+                  padding: '0 4px',
                 }}
               >
-                {empty ? '' : (rAbs + 1)}
+                {/* Liten caret i #-kolonnen */}
+                {treeMode ? (
+                  <span
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (v.hasChildren) toggleExpand(r.id);
+                    }}
+                    style={{
+                      fontSize: 10,
+                      lineHeight: '10px',
+                      width: 10,
+                      textAlign: 'center',
+                      opacity: v.hasChildren ? 0.9 : 0.25,
+                      cursor: v.hasChildren ? 'pointer' : 'default',
+                      userSelect: 'none',
+                    }}
+                    title={v.hasChildren ? (expanded.has(r.id) ? 'Kollaps' : 'Ekspander') : undefined}
+                  >
+                    {v.hasChildren ? (expanded.has(r.id) ? '▾' : '▸') : '•'}
+                  </span>
+                ) : null}
+                <span>{empty ? '' : (rAbs + 1)}</span>
               </div>
 
               {/* Data-celler */}
@@ -639,7 +677,7 @@ export default function TableCore(props: TableCoreProps) {
                     onDoubleClick={(e) => onCellDoubleClick(e, rAbs, cIdx)}
                     style={{
                       padding: isEditing ? '3px 6px' : '6px 10px',
-                      borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
+                      borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid #243041`,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -653,28 +691,12 @@ export default function TableCore(props: TableCoreProps) {
                       cursor: isEditing ? 'text' : 'default',
                     }}
                   >
-                    {/* Innrykk + caret i første kolonne i treeMode */}
+                    {/* Bare innrykk i første datakolonne (caret flyttet til #) */}
                     {treeMode && isFirstDataCol ? (
-                      <span
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (v.hasChildren) toggleExpand(r.id);
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          marginLeft: indentPx,
-                          userSelect: 'none',
-                          cursor: v.hasChildren ? 'pointer' : 'default',
-                        }}
-                        title={v.hasChildren ? (expanded.has(r.id) ? 'Kollaps' : 'Ekspander') : undefined}
-                      >
-                        <span style={{ width: 14, display: 'inline-block', textAlign: 'center', opacity: v.hasChildren ? 0.9 : 0.3 }}>
-                          {caret}
-                        </span>
-                        <span>{isEditing ? renderEditor(col, editing!.draft, d => setEditing(e => (e ? { ...e, draft: d } : e))) : formatted}</span>
+                      <span style={{ display: 'inline-block', marginLeft: indentPx }}>
+                        {isEditing
+                          ? renderEditor(col, editing!.draft, d => setEditing(e => (e ? { ...e, draft: d } : e)))
+                          : formatted}
                       </span>
                     ) : (
                       <>
@@ -729,40 +751,32 @@ export default function TableCore(props: TableCoreProps) {
     const oldParent = parentOf.get(rowId) ?? null;
     if (oldParent === newParentId) return;
     props.onPatch?.({ rowId, colId: PARENT_COL_ID, oldValue: oldParent, nextValue: newParentId });
-    // ikke pusher til history her – anta at repo håndterer historikk/commit
   }
 
   function indentRow(rowId: string, selIdx: number) {
-    // Rykk inn: gjør raden til barn av nærmeste forrige synlige DATA-rad (ikke summary)
     const before = visible.slice(0, selIdx).reverse();
     const parentCandidate = before.find(v => !v.isSummary)?.row?.id ?? null;
     if (!parentCandidate) return;
     setParent(rowId, parentCandidate);
-    // Sørg for at ny parent er ekspandert
     setExpanded(prev => new Set(prev).add(parentCandidate));
   }
 
   function outdentRow(rowId: string) {
     const parent = parentOf.get(rowId);
-    if (!parent) return; // allerede root
+    if (!parent) return;
     const grandParent = parentOf.get(parent) ?? null;
     setParent(rowId, grandParent);
   }
 
   function moveRowWithinParent(rowId: string, delta: number) {
     const parent = parentOf.get(rowId) ?? null;
-    const siblings = (childrenOf.get(parent) ?? []).filter(id => id !== rowId); // uten oss selv
-    // Finn vår pos i rowOrder og bytt med nærmeste rad som har samme parent
     const order = [...rowOrder];
     const idx = order.indexOf(rowId);
     if (idx === -1) return;
-
-    // Finn neste indeks opp/ned som har samme parent
     let j = idx + (delta < 0 ? -1 : 1);
     while (j >= 0 && j < order.length) {
       const candidateId = order[j];
       if ((parentOf.get(candidateId) ?? null) === parent) {
-        // bytt plass
         const [m] = order.splice(idx, 1);
         order.splice(j, 0, m);
         setRowOrder(order);
