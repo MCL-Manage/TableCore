@@ -22,10 +22,10 @@ export type TableCoreProps = {
   onReorderColumns?: (colIds: string[]) => void;
 
   // --- Tree/summary-utvidelser ---
-  treeMode?: boolean; // aktiver hierarki/innrykk/expand
-  showSummaries?: boolean; // vis summary-rader
-  getParentId?: (row: RowLike) => string | null; // default: row.parentId ?? null
-  getRowType?: (row: RowLike) => 'data' | 'summary'; // default: 'data'
+  treeMode?: boolean;
+  showSummaries?: boolean;
+  getParentId?: (row: RowLike) => string | null;
+  getRowType?: (row: RowLike) => 'data' | 'summary';
 };
 
 type EditingCell = { rowId: string; colId: string; draft: any };
@@ -38,7 +38,7 @@ type VisibleRow = {
   isSummary: boolean;
 };
 
-const PARENT_COL_ID = 'parentId'; // endre hvis du bruker annet feltnavn
+const PARENT_COL_ID = 'parentId';
 
 export default function TableCore(props: TableCoreProps) {
   const {
@@ -53,6 +53,21 @@ export default function TableCore(props: TableCoreProps) {
     getParentId = (r: RowLike) => (r.parentId ?? null),
     getRowType = (_r: RowLike) => 'data',
   } = props;
+
+  // Små CSS for editorne: transparent bakgrunn i dark-mode
+  // (påvirker input/textarea som rendres av CellEditors)
+  const editorCss = `
+    .tc-editor input, .tc-editor textarea, .tc-editor select {
+      background: transparent !important;
+      color: inherit !important;
+      border-color: #374151;
+    }
+    .tc-editor input:focus, .tc-editor textarea:focus, .tc-editor select:focus {
+      outline: none;
+      box-shadow: none;
+      border-color: #93c5fd;
+    }
+  `;
 
   // ----- Orden (kolonner/rader) -----
   const [colOrder, setColOrder] = React.useState(() => columns.map(c => c.id));
@@ -246,11 +261,11 @@ export default function TableCore(props: TableCoreProps) {
   function renderEditor(col: ColumnDef, draft: any, setDraft: (v: any) => void) {
     const common = { value: draft, autoFocus: true, onChange: setDraft, onEnter: commitEdit, onEscape: cancelEdit, onBlur: commitEdit };
     switch (col.type) {
-      case 'number': return <NumberEditor {...common} />;
-      case 'date':   return <DateEditor {...common} />;
-      case 'select': return <SelectEditor {...common} options={col.options ?? []} />;
-      case 'color':  return <ColorEditor {...common} />;
-      default:       return <TextEditor {...common} />;
+      case 'number': return <div className="tc-editor"><NumberEditor {...common} /></div>;
+      case 'date':   return <div className="tc-editor"><DateEditor {...common} /></div>;
+      case 'select': return <div className="tc-editor"><SelectEditor {...common} options={col.options ?? []} /></div>;
+      case 'color':  return <div className="tc-editor"><ColorEditor {...common} /></div>;
+      default:       return <div className="tc-editor"><TextEditor {...common} /></div>;
     }
   }
 
@@ -339,45 +354,40 @@ export default function TableCore(props: TableCoreProps) {
     onClipboardKeys(e);
     if (e.defaultPrevented) return;
 
-    // Hvis vi er midt i redigering: Enter committer
     if (editing) {
       if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
       return;
     }
 
     const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
-    const ctrl = isMac ? e.metaKey : e.ctrlKey;
+    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
 
     // Vanlige grid-taster
     if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
     if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
     if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
 
-    if (!treeMode) {
-      if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
-      if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
-      if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
-      if (ctrl && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
-      return;
-    }
+    // Navigasjon med piltaster (ALLTID navigasjon nå)
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
 
-    // --- Tree-mode spesial ---
+    if (!treeMode) return;
+
+    // --- Tree-modus: Ctrl/Cmd + venstre/høyre = kollaps/ekspander
     const selIdx = rect?.r0 ?? 0;
     const v = visible[selIdx];
     if (!v) return;
 
-    // Piltaster uten Alt = expand/collapse ellers vanlig
-    if (!e.altKey && e.key === 'ArrowRight') {
+    if (ctrlOrCmd && e.key === 'ArrowRight') {
       e.preventDefault();
       if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
-      else moveCursor(0, 1);
       return;
     }
-    if (!e.altKey && e.key === 'ArrowLeft') {
+    if (ctrlOrCmd && e.key === 'ArrowLeft') {
       e.preventDefault();
       if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
-      else moveCursor(0, -1);
       return;
     }
 
@@ -402,14 +412,6 @@ export default function TableCore(props: TableCoreProps) {
       moveRowWithinParent(v.row.id, +1);
       return;
     }
-
-    // Vanlig piltastnavigasjon i tree-mode
-    if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
-    if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
-
-    if (ctrl && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
   }
 
   function applyActionForward(action: HistoryAction) {
@@ -435,8 +437,8 @@ export default function TableCore(props: TableCoreProps) {
 
   // ----- Cellehendelser -----
   function onCellMouseDown(e: React.MouseEvent, rAbs: number, cIdx: number) {
-    if (cIdx === -1) return; // # ikke markerbar
-    e.preventDefault(); // slå av native tekstmarkering
+    if (cIdx === -1) return;
+    e.preventDefault();
     rootRef.current?.focus();
     setSingle(rAbs, cIdx);
     setIsDraggingRange(true);
@@ -450,8 +452,8 @@ export default function TableCore(props: TableCoreProps) {
   function onCellDoubleClick(_e: React.MouseEvent, rAbs: number, cIdx: number) {
     startEdit(rAbs, cIdx);
     setTimeout(() => {
-      const el = bodyRef.current?.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement | null;
-      el?.select();
+      const el = bodyRef.current?.querySelector('input, textarea, select') as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      el?.select?.();
     }, 30);
   }
 
@@ -476,7 +478,7 @@ export default function TableCore(props: TableCoreProps) {
   // ----- Drag/slipp rader (via #) -----
   function onRowDragStart(e: React.DragEvent, idx: number) {
     const v = visible[idx];
-    if (!v || v.isSummary) return; // summary-rader ikke draggable
+    if (!v || v.isSummary) return;
     setDragRowIdx(idx);
     e.dataTransfer.setData('text/plain', String(idx));
     e.dataTransfer.effectAllowed = 'move';
@@ -496,7 +498,6 @@ export default function TableCore(props: TableCoreProps) {
       vTo = alt;
     }
 
-    // Restriksjon i tre-modus: samme parent
     if (treeMode) {
       const pFrom = parentOf.get(vFrom.row.id) ?? null;
       const pTo = parentOf.get(vTo.row.id) ?? null;
@@ -515,16 +516,10 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   // ----- Render -----
-  const baseFont = 13; // px
-  function fontSizeForLevel(level: number) {
-    return level >= 2 ? baseFont - 2 : baseFont; // level2+ blir mindre
-  }
-  function fontWeightFor(hasChildren: boolean) {
-    return hasChildren ? 700 : 400; // forelder = fet
-  }
-  function fontStyleFor(level: number) {
-    return level >= 1 ? 'italic' as const : 'normal' as const; // child = kursiv
-  }
+  const baseFont = 13;
+  function fontSizeForLevel(level: number) { return level >= 2 ? baseFont - 2 : baseFont; }
+  function fontWeightFor(hasChildren: boolean) { return hasChildren ? 700 : 400; }
+  function fontStyleFor(level: number) { return level >= 1 ? 'italic' as const : 'normal' as const; }
 
   return (
     <div
@@ -542,25 +537,27 @@ export default function TableCore(props: TableCoreProps) {
         outline: 'none',
       }}
     >
+      <style>{editorCss}</style>
+
       {/* Header */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: gridCols,
-          background: '#0f172a',
-          color: '#e5e7eb',
-          borderBottom: `1px solid #1f2937`,
+          background: HEADER_BG,
+          color: HEADER_FG,
+          borderBottom: `1px solid ${BORDER_H}`,
           fontWeight: 600,
           fontSize: 13,
         }}
       >
         <div style={{
           textAlign: 'center',
-          borderRight: `1px solid #243041`,
+          borderRight: `1px solid ${BORDER_V}`,
           position: 'sticky',
           left: 0,
           zIndex: 3,
-          background: '#0f172a',
+          background: HEADER_BG,
         }}>#</div>
         {allCols.map((c, i) => (
           <div
@@ -571,9 +568,9 @@ export default function TableCore(props: TableCoreProps) {
             onDrop={(e) => onHeaderDrop(e, i)}
             style={{
               padding: '8px 10px',
-              borderRight: i === allCols.length - 1 ? 'none' : `1px solid #243041`,
+              borderRight: i === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
               cursor: 'grab',
-              background: '#0f172a',
+              background: HEADER_BG,
             }}
           >
             {c.header}
@@ -603,12 +600,11 @@ export default function TableCore(props: TableCoreProps) {
               style={{
                 display: 'grid',
                 gridTemplateColumns: gridCols,
-                borderBottom: `1px solid #1f2937`,
+                borderBottom: `1px solid ${BORDER_H}`,
                 height: rowHeight,
                 lineHeight: `${rowHeight - 10}px`,
                 background: isSummary ? '#0d1324' : undefined,
                 opacity: isSummary ? 0.95 : 1,
-                // typografi for hele raden:
                 fontWeight: fontWeightFor(v.hasChildren),
                 fontStyle: fontStyleFor(v.level),
                 fontSize: fontSizeForLevel(v.level),
@@ -624,7 +620,7 @@ export default function TableCore(props: TableCoreProps) {
                   alignItems: 'center',
                   gap: 6,
                   justifyContent: 'center',
-                  borderRight: `1px solid #243041`,
+                  borderRight: `1px solid ${BORDER_V}`,
                   background: '#111827',
                   color: '#9ca3af',
                   cursor: isSummary ? 'default' : 'grab',
@@ -634,7 +630,6 @@ export default function TableCore(props: TableCoreProps) {
                   padding: '0 4px',
                 }}
               >
-                {/* Liten caret i #-kolonnen */}
                 {treeMode ? (
                   <span
                     onMouseDown={(e) => e.stopPropagation()}
@@ -677,21 +672,22 @@ export default function TableCore(props: TableCoreProps) {
                     onDoubleClick={(e) => onCellDoubleClick(e, rAbs, cIdx)}
                     style={{
                       padding: isEditing ? '3px 6px' : '6px 10px',
-                      borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid #243041`,
+                      borderRight: cIdx === allCols.length - 1 ? 'none' : `1px solid ${BORDER_V}`,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      background: isEditing ? '#fff' : cellSelected ? SEL_FILL : undefined,
+                      // ⬇️ Ikke bytt til hvit bakgrunn ved redigering
+                      background: cellSelected ? SEL_FILL : undefined,
                       outline: cellSelected ? `1px solid ${SEL_OUT}` : 'none',
                       outlineOffset: -1,
-                      color: isEditing ? '#111827' : undefined,
+                      // Ikke tving svart tekst i dark mode når vi redigerer
+                      color: undefined,
                       position: freezeFirstColumn && cIdx === 0 ? 'sticky' as const : undefined,
                       left: freezeFirstColumn && cIdx === 0 ? 40 : undefined,
                       zIndex: freezeFirstColumn && cIdx === 0 ? 1 : 0,
                       cursor: isEditing ? 'text' : 'default',
                     }}
                   >
-                    {/* Bare innrykk i første datakolonne (caret flyttet til #) */}
                     {treeMode && isFirstDataCol ? (
                       <span style={{ display: 'inline-block', marginLeft: indentPx }}>
                         {isEditing
@@ -752,7 +748,6 @@ export default function TableCore(props: TableCoreProps) {
     if (oldParent === newParentId) return;
     props.onPatch?.({ rowId, colId: PARENT_COL_ID, oldValue: oldParent, nextValue: newParentId });
   }
-
   function indentRow(rowId: string, selIdx: number) {
     const before = visible.slice(0, selIdx).reverse();
     const parentCandidate = before.find(v => !v.isSummary)?.row?.id ?? null;
@@ -760,14 +755,12 @@ export default function TableCore(props: TableCoreProps) {
     setParent(rowId, parentCandidate);
     setExpanded(prev => new Set(prev).add(parentCandidate));
   }
-
   function outdentRow(rowId: string) {
     const parent = parentOf.get(rowId);
     if (!parent) return;
     const grandParent = parentOf.get(parent) ?? null;
     setParent(rowId, grandParent);
   }
-
   function moveRowWithinParent(rowId: string, delta: number) {
     const parent = parentOf.get(rowId) ?? null;
     const order = [...rowOrder];
