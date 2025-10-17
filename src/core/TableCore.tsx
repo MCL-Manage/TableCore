@@ -330,42 +330,60 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   function handleKeyDownCapture(e: React.KeyboardEvent<HTMLDivElement>) {
-    onClipboardKeys(e);
-    if (e.defaultPrevented) return;
+  onClipboardKeys(e);
+  if (e.defaultPrevented) return;
 
+  const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
+  const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+  // Finn "aktiv rad" uansett kolonne – og også mens vi redigerer
+  const activeRowIdx = (() => {
     if (editing) {
-      if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+      const i = visible.findIndex(v => v.row.id === editing.rowId);
+      if (i >= 0) return i;
+    }
+    return rect?.r0 ?? 0;
+  })();
+  const v = visible[activeRowIdx];
+
+  // --- HOTKEYS skal virke også mens vi redigerer ---
+  if (treeMode && v) {
+    // Ctrl/Cmd + venstre/høyre = kollaps/ekspander
+    if (ctrlOrCmd && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      if (e.key === 'ArrowRight' && v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
+      if (e.key === 'ArrowLeft'  && v.hasChildren &&  expanded.has(v.row.id)) toggleExpand(v.row.id);
       return;
     }
-
-    const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
-    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
-
-    // Slett/Tab/Enter
-    if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
-    if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
-    if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
-
-    // Tree-kombinasjoner først
-    if (treeMode) {
-      const selIdx = rect?.r0 ?? 0;
-      const v = visible[selIdx];
-      if (v) {
-        if (ctrlOrCmd && e.key === 'ArrowRight') { e.preventDefault(); if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id); return; }
-        if (ctrlOrCmd && e.key === 'ArrowLeft')  { e.preventDefault(); if (v.hasChildren &&  expanded.has(v.row.id)) toggleExpand(v.row.id); return; }
-        if (e.altKey && e.key === 'ArrowRight')  { e.preventDefault(); indentRow(v.row.id, selIdx); return; }
-        if (e.altKey && e.key === 'ArrowLeft')   { e.preventDefault(); outdentRow(v.row.id); return; }
-        if (e.altKey && e.key === 'ArrowUp')     { e.preventDefault(); moveRowWithinParent(v.row.id, -1); return; }
-        if (e.altKey && e.key === 'ArrowDown')   { e.preventDefault(); moveRowWithinParent(v.row.id, +1); return; }
-      }
+    // Alt + piltaster = inn/ut og flytt opp/ned
+    if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      if (e.key === 'ArrowRight') indentRow(v.row.id, activeRowIdx);
+      if (e.key === 'ArrowLeft')  outdentRow(v.row.id);
+      if (e.key === 'ArrowUp')    moveRowWithinParent(v.row.id, -1);
+      if (e.key === 'ArrowDown')  moveRowWithinParent(v.row.id, +1);
+      return;
     }
-
-    // Vanlig navigasjon til slutt
-    if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
-    if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
   }
+
+  // Hvis vi er i redigering og ikke traff en hotkey over: la input få styre,
+  // men støtt Enter=commit.
+  if (editing) {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+    return;
+  }
+
+  // Grid: Delete / Tab / Enter
+  if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
+  if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
+  if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+
+  // Vanlig piltast-navigasjon (alltid navigasjon)
+  if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
+  if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
+}
 
   function applyActionForward(action: HistoryAction) {
     if (!props.onPatch) return;
