@@ -38,6 +38,8 @@ type VisibleRow = {
   isSummary: boolean;
 };
 
+const PARENT_COL_ID = 'parentId'; // ← endre hvis du bruker annet feltnavn enn "parentId"
+
 export default function TableCore(props: TableCoreProps) {
   const {
     columns,
@@ -95,10 +97,9 @@ export default function TableCore(props: TableCoreProps) {
     return m;
   }, [rowOrder, idToRow, getParentId]);
 
-  // expanded state: per parent-id
+  // expanded state
   const [expanded, setExpanded] = React.useState<Set<string>>(() => {
     const s = new Set<string>();
-    // start: alt ekspandert
     for (const id of rowOrder) {
       const hasKids = (childrenOf.get(id)?.length ?? 0) > 0;
       if (hasKids) s.add(id);
@@ -106,7 +107,6 @@ export default function TableCore(props: TableCoreProps) {
     return s;
   });
   React.useEffect(() => {
-    // synk ved nye foreldre
     setExpanded(prev => {
       const next = new Set(prev);
       for (const id of rowOrder) {
@@ -125,10 +125,8 @@ export default function TableCore(props: TableCoreProps) {
     });
   };
 
-  // pre-order synlig liste
   const visible: VisibleRow[] = React.useMemo(() => {
     if (!treeMode) {
-      // flat
       return rowOrder
         .map(id => idToRow.get(id))
         .filter(Boolean)
@@ -144,12 +142,9 @@ export default function TableCore(props: TableCoreProps) {
       const isSummary = getRowType(r) === 'summary';
       const hasChildren = kids.length > 0;
 
-      if (isSummary && !showSummaries) {
-        // hopp over summary
-      } else {
+      if (!(isSummary && !showSummaries)) {
         out.push({ row: r, level, hasChildren, isSummary });
       }
-
       if (hasChildren && expanded.has(id)) {
         for (const cid of kids) walk(cid, level + 1);
       }
@@ -158,13 +153,6 @@ export default function TableCore(props: TableCoreProps) {
     for (const rid of roots) walk(rid, 0);
     return out;
   }, [treeMode, rowOrder, idToRow, childrenOf, expanded, getRowType, showSummaries]);
-
-  // mapping id -> level/hasChildren for stiler
-  const meta = React.useMemo(() => {
-    const m = new Map<string, { level: number; hasChildren: boolean; isSummary: boolean }>();
-    for (const v of visible) m.set(v.row.id, { level: v.level, hasChildren: v.hasChildren, isSummary: v.isSummary });
-    return m;
-  }, [visible]);
 
   // ----- UI-state -----
   const [editing, setEditing] = React.useState<EditingCell | null>(null);
@@ -322,7 +310,7 @@ export default function TableCore(props: TableCoreProps) {
     onRedo: () => { const a = history.redo(); if (a) applyActionForward(a); },
   });
 
-  // ----- Delete / Navigasjon -----
+  // ----- Delete / Navigasjon + TREE HOTKEYS -----
   function clearSelectionWithDelete() {
     if (!rect || !props.onPatch) return;
     const changes: CellChange[] = [];
@@ -340,6 +328,7 @@ export default function TableCore(props: TableCoreProps) {
     }
     if (changes.length) { history.push({ changes }); props.onCommit?.(); }
   }
+
   function moveCursor(dr: number, dc: number) {
     if (!rect) return;
     const r = clamp((dr >= 0 ? rect.r1 : rect.r0) + dr, 0, rowCount - 1);
@@ -350,10 +339,12 @@ export default function TableCore(props: TableCoreProps) {
     if (y < body.scrollTop) body.scrollTop = y;
     else if (y + rowHeight > body.scrollTop + body.clientHeight) body.scrollTop = y - body.clientHeight + rowHeight;
   }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     onClipboardKeys(e);
     if (e.defaultPrevented) return;
 
+    // Hvis vi er midt i redigering: Enter committer
     if (editing) {
       if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
       return;
@@ -362,13 +353,66 @@ export default function TableCore(props: TableCoreProps) {
     const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
     const ctrl = isMac ? e.metaKey : e.ctrlKey;
 
+    // Vanlige grid-taster
     if (e.key === 'Delete') { e.preventDefault(); clearSelectionWithDelete(); return; }
     if (e.key === 'Tab')    { e.preventDefault(); moveCursor(0, e.shiftKey ? -1 : 1); return; }
     if (e.key === 'Enter')  { e.preventDefault(); if (rect) startEdit(rect.r0, rect.c0); return; }
+    if (!treeMode) {
+      if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
+      if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
+      if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
+      if (ctrl && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
+      return;
+    }
+
+    // --- Tree-mode spesial ---
+    const selIdx = rect?.r0 ?? 0;
+    const v = visible[selIdx];
+    if (!v) return;
+
+    // Piltaster uten Alt = expand/collapse
+    if (!e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (v.hasChildren && !expanded.has(v.row.id)) toggleExpand(v.row.id);
+      else moveCursor(0, 1); // ellers normal høyre
+      return;
+    }
+    if (!e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (v.hasChildren && expanded.has(v.row.id)) toggleExpand(v.row.id);
+      else moveCursor(0, -1); // ellers normal venstre
+      return;
+    }
+
+    // Alt+pil = strukturell flytting
+    if (e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      indentRow(v.row.id, selIdx);
+      return;
+    }
+    if (e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      outdentRow(v.row.id);
+      return;
+    }
+    if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveRowWithinParent(v.row.id, -1);
+      return;
+    }
+    if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveRowWithinParent(v.row.id, +1);
+      return;
+    }
+
+    // Vanlig piltastnavigasjon i tree-mode
     if (e.key === 'ArrowUp')    { e.preventDefault(); moveCursor(-1,  0); return; }
     if (e.key === 'ArrowDown')  { e.preventDefault(); moveCursor( 1,  0); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); moveCursor( 0, -1); return; }
     if (e.key === 'ArrowRight') { e.preventDefault(); moveCursor( 0,  1); return; }
+
     if (ctrl && e.key.toLowerCase() === 'enter') { if (rect) startEdit(rect.r0, rect.c0); }
   }
 
@@ -451,7 +495,6 @@ export default function TableCore(props: TableCoreProps) {
 
     if (!vFrom || !vTo) return;
     if (vTo.isSummary) {
-      // droppet på summary → finn nærmeste datasrad (over hvis mulig)
       const alt = visible.slice(0, to).reverse().find(v => !v.isSummary);
       if (!alt) return;
       vTo = alt;
@@ -464,7 +507,6 @@ export default function TableCore(props: TableCoreProps) {
       if (pFrom !== pTo) return; // ignorer flytt over grenser
     }
 
-    // Flytt i rowOrder basert på id-posisjoner
     const next = [...rowOrder];
     const fromPos = next.indexOf(vFrom.row.id);
     const toPos = next.indexOf(vTo.row.id);
@@ -544,7 +586,6 @@ export default function TableCore(props: TableCoreProps) {
           const isSummary = v.isSummary;
           const empty = isEmptyRow(r);
           const indentPx = v.level * 16;
-
           const caret = v.hasChildren ? (expanded.has(r.id) ? '▼' : '▶') : '•';
 
           return (
@@ -587,7 +628,6 @@ export default function TableCore(props: TableCoreProps) {
                 const isEditing = editing && editing.rowId === r.id && editing.colId === col.id;
                 const value = r[col.id];
                 const formatted = col.format ? col.format(value, r) : value ?? '';
-
                 const isFirstDataCol = cIdx === 0;
 
                 return (
@@ -682,5 +722,54 @@ export default function TableCore(props: TableCoreProps) {
     if (!props.onPatch) return;
     for (const ch of action.changes) props.onPatch({ rowId: ch.rowId, colId: ch.colId, oldValue: ch.nextValue, nextValue: ch.oldValue });
     props.onCommit?.();
+  }
+
+  // ----- TREE mutasjoner (via onPatch) -----
+  function setParent(rowId: string, newParentId: string | null) {
+    const oldParent = parentOf.get(rowId) ?? null;
+    if (oldParent === newParentId) return;
+    props.onPatch?.({ rowId, colId: PARENT_COL_ID, oldValue: oldParent, nextValue: newParentId });
+    // ikke pusher til history her – anta at repo håndterer historikk/commit
+  }
+
+  function indentRow(rowId: string, selIdx: number) {
+    // Rykk inn: gjør raden til barn av nærmeste forrige synlige DATA-rad (ikke summary)
+    const before = visible.slice(0, selIdx).reverse();
+    const parentCandidate = before.find(v => !v.isSummary)?.row?.id ?? null;
+    if (!parentCandidate) return;
+    setParent(rowId, parentCandidate);
+    // Sørg for at ny parent er ekspandert
+    setExpanded(prev => new Set(prev).add(parentCandidate));
+  }
+
+  function outdentRow(rowId: string) {
+    const parent = parentOf.get(rowId);
+    if (!parent) return; // allerede root
+    const grandParent = parentOf.get(parent) ?? null;
+    setParent(rowId, grandParent);
+  }
+
+  function moveRowWithinParent(rowId: string, delta: number) {
+    const parent = parentOf.get(rowId) ?? null;
+    const siblings = (childrenOf.get(parent) ?? []).filter(id => id !== rowId); // uten oss selv
+    // Finn vår pos i rowOrder og bytt med nærmeste rad som har samme parent
+    const order = [...rowOrder];
+    const idx = order.indexOf(rowId);
+    if (idx === -1) return;
+
+    // Finn neste indeks opp/ned som har samme parent
+    let j = idx + (delta < 0 ? -1 : 1);
+    while (j >= 0 && j < order.length) {
+      const candidateId = order[j];
+      if ((parentOf.get(candidateId) ?? null) === parent) {
+        // bytt plass
+        const [m] = order.splice(idx, 1);
+        order.splice(j, 0, m);
+        setRowOrder(order);
+        props.onReorderRows?.(order);
+        break;
+      }
+      j += (delta < 0 ? -1 : 1);
+    }
   }
 }
