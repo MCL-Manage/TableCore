@@ -1,195 +1,90 @@
 import React from 'react';
 import TableCore from '../core/TableCore';
-import { getProgressColumns, applyActivityCanonRule } from '../adapters/ProgressTableAdapter';
-import type { Activity } from '../types';
-import { ensureDb } from '../data/initDb';
-import { ActivityRepo } from '../data/ActivityRepo';
-import AppToolbar from '../ui/AppToolbar';
-import SaveIndicator, { SaveState } from './SaveIndicator';
+import type { ColumnDef } from '../types';
 
-function rid() { return Math.random().toString(36).slice(2, 10); }
-const DEMO_PROJECT_ID = 'demo-project';
+type Activity = {
+  id: string;
+  code?: string;
+  name: string;
+  start?: string;
+  end?: string;
+  durationDays?: number;
+  color?: string;
+  status?: string;
+  // Viktig for tree:
+  parentId?: string | null;
+  // (valgfritt) for summary-visning:
+  rowType?: 'data' | 'summary';
+};
+
+const columns: ColumnDef[] = [
+  { id: 'code', header: 'Kode', type: 'text', width: 100 },
+  { id: 'name', header: 'Navn', type: 'text', width: 240, editable: () => true },
+  { id: 'start', header: 'Start', type: 'date', width: 130 },
+  { id: 'end', header: 'Slutt', type: 'date', width: 130 },
+  { id: 'durationDays', header: 'Varighet (d)', type: 'number', width: 130 },
+  { id: 'status', header: 'Status', type: 'select', options: ['planlagt','aktiv','ferdig'], width: 120 },
+  { id: 'color', header: 'Farge', type: 'color', width: 110 },
+];
+
+const initialRows: Activity[] = [
+  { id: 'A', code: 'A', name: 'Hovedleveranse', status: 'planlagt', parentId: null },
+  { id: 'A1', code: 'A1', name: 'Analyse', status: 'aktiv', parentId: 'A' },
+  { id: 'A2', code: 'A2', name: 'Design', status: 'planlagt', parentId: 'A' },
+  { id: 'A2.1', code: 'A2.1', name: 'UI-design', status: 'planlagt', parentId: 'A2' },
+  { id: 'A2.2', code: 'A2.2', name: 'Interaksjon', status: 'planlagt', parentId: 'A2' },
+  // Eksempel på “sammendragslinje” for en gruppe:
+  { id: 'SUM-A', name: 'Sum Hovedleveranse', rowType: 'summary', parentId: 'A' },
+
+  { id: 'B', code: 'B', name: 'Implementering', status: 'planlagt', parentId: null },
+  { id: 'B1', code: 'B1', name: 'Kjerne', status: 'planlagt', parentId: 'B' },
+  { id: 'B2', code: 'B2', name: 'Adaptere', status: 'planlagt', parentId: 'B' },
+];
 
 export default function DemoProgress() {
-  const [rows, setRows] = React.useState<Activity[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [sel, setSel] = React.useState<{ rows: number[]; cols: number[] }>({ rows: [], cols: [] });
-  const [saveState, setSaveState] = React.useState<SaveState>('idle');
+  const [rows, setRows] = React.useState<Activity[]>(initialRows);
 
-  const [cols, setCols] = React.useState(getProgressColumns()); // lokal kolonnerekkefølge
-
-  const repoRef = React.useRef<ActivityRepo | null>(null);
-
-  React.useEffect(() => {
-    (async () => {
-      const db = await ensureDb();
-      const repo = new ActivityRepo(db);
-      repoRef.current = repo;
-
-      const existing = await repo.listByProject(DEMO_PROJECT_ID);
-      if (existing.length === 0) {
-        const nowISO = new Date().toISOString().slice(0, 10);
-        const demo: Activity[] = [
-          { id: rid(), projectId: DEMO_PROJECT_ID, code: 'A-100', name: 'Kickoff', start: nowISO, end: nowISO, durationDays: 1, color: '#60a5fa', status: 'planned', rowVersion: 1 },
-          { id: rid(), projectId: DEMO_PROJECT_ID, code: 'A-110', name: 'Design',  start: nowISO, end: addDaysISO(nowISO, 4),  durationDays: 5,  color: '#34d399', status: 'inprogress', rowVersion: 1 },
-          { id: rid(), projectId: DEMO_PROJECT_ID, code: 'A-120', name: 'Bygging', start: addDaysISO(nowISO, 6), end: addDaysISO(nowISO, 20), durationDays: 15, color: '#fbbf24', status: 'planned', rowVersion: 1 },
-          { id: rid(), projectId: DEMO_PROJECT_ID, code: 'A-130', name: 'Test',    start: addDaysISO(nowISO, 22), end: addDaysISO(nowISO, 26), durationDays: 5,  color: '#f472b6', status: 'planned', rowVersion: 1 },
-        ];
-        for (const d of demo) await repo.create(d);
-        setRows(demo);
-      } else {
-        setRows(existing);
-      }
-      setLoading(false);
-    })();
-  }, []);
-
-  function onReorderColumns(ids: string[]) {
-    // sorter vår columns-array etter ny id-rekkefølge
-    setCols(prev => {
-      const byId = new Map(prev.map(c => [c.id, c]));
-      return ids.map(id => byId.get(id)!).filter(Boolean);
-    });
+  function patchOne(p: { rowId: string; colId: string; oldValue: any; nextValue: any }) {
+    setRows(prev =>
+      prev.map(r => (r.id === p.rowId ? { ...r, [p.colId]: p.nextValue } : r))
+    );
   }
 
-  function onReorderRows(ids: string[]) {
-    // kun UI-rekkefølge i demo; (senere: lagre sortIndex i repo)
+  function bulkReorder(newOrderIds: string[]) {
+    // re-ranger rows etter id-lista fra TableCore
     const byId = new Map(rows.map(r => [r.id, r]));
-    setRows(ids.map(id => byId.get(id)!).filter(Boolean));
+    const next: Activity[] = [];
+    for (const id of newOrderIds) {
+      const r = byId.get(id);
+      if (r) next.push(r);
+    }
+    // legg til eventuelle som mangler (skulle ikke skje, men safe)
+    for (const r of rows) if (!byId.has(r.id)) next.push(r);
+    setRows(next);
   }
-
-  if (loading) return <div>Henter data…</div>;
 
   return (
-    <>
-      <AppToolbar
-        title="Progress"
-        leftActions={[
-          { id: 'add', label: 'Ny rad', icon: 'add', onClick: addRow },
-          { id: 'del', label: 'Slett markert', icon: 'delete', onClick: deleteSelected, disabled: sel.rows.length === 0 },
-          { id: 'export', label: 'Eksporter', icon: 'export', onClick: exportCSV },
-        ]}
-        rightActions={[
-          { id: 'save-state', label: '', icon: 'save', disabled: true },
-        ]}
-      >
-        <SaveIndicator state={saveState} />
-      </AppToolbar>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: 'calc(100vh - 100px)', gap: 8 }}>
+      <div style={{ color: '#9ca3af', fontSize: 14 }}>
+        <strong>Test tre-modus:</strong> Klikk en rad og bruk <code>Alt+→</code> for å rykke inn, <code>Alt+←</code> for å rykke ut, <code>Alt+↑/Alt+↓</code> for å flytte opp/ned innen samme parent.  
+        Vanlige piltaster <code>→/←</code> ekspanderer/kollapser hvis raden har barn.
+      </div>
 
       <TableCore
-        columns={cols}
+        columns={columns}
         rows={rows}
-        readonly={false}
-        freezeFirstColumn={true}
-        rowHeight={32}
-        bodyHeight={420}
-        onSelectionChange={(s) => setSel(s)}
-        onReorderColumns={onReorderColumns}
-        onReorderRows={onReorderRows}
-        onPatch={async ({ rowId, colId, oldValue, nextValue }) => {
-          const current = rows.find(r => r.id === rowId);
-          if (!current || !repoRef.current) return;
+        bodyHeight={520}
+        // 🔽 Tre-aktivering:
+        treeMode
+        showSummaries
+        getParentId={(r) => r.parentId ?? null}
+        getRowType={(r) => r.rowType ?? 'data'}
 
-          const key = colId as keyof Activity;
-          const nextRow: Activity = { ...current, [key]: nextValue } as Activity;
-
-          const withCanon =
-            (key === 'start' || key === 'durationDays' || key === 'end')
-              ? applyActivityCanonRule(nextRow, key)
-              : nextRow;
-
-          setSaveState('saving');
-          setRows(prev => prev.map(r => (r.id === rowId ? { ...withCanon } : r)));
-
-          try {
-            await repoRef.current.patch(
-              rowId,
-              {
-                rowId,
-                changes: {
-                  [key]: { old: oldValue, next: nextValue },
-                  ...(key !== 'end' && withCanon.end !== current.end
-                    ? { end: { old: current.end, next: withCanon.end } }
-                    : {}),
-                  ...(key !== 'durationDays' && withCanon.durationDays !== current.durationDays
-                    ? { durationDays: { old: current.durationDays, next: withCanon.durationDays } }
-                    : {}),
-                } as any,
-              },
-              { rowVersion: current.rowVersion }
-            );
-
-            const fresh = await repoRef.current.get(rowId);
-            if (fresh) setRows(prev => prev.map(r => (r.id === rowId ? fresh : r)));
-
-            setSaveState('saved');
-            setTimeout(() => setSaveState('idle'), 1200);
-          } catch (e) {
-            console.error(e);
-            setRows(prev => prev.map(r => (r.id === rowId ? current : r)));
-            setSaveState('error');
-            setTimeout(() => setSaveState('idle'), 1500);
-            alert('Kunne ikke lagre endring (konflikt eller feil).');
-          }
-        }}
+        onPatch={patchOne}
+        onReorderRows={bulkReorder}
+        onReorderColumns={() => {}}
         onCommit={() => {}}
       />
-    </>
+    </div>
   );
-
-  async function addRow() {
-    if (!repoRef.current) return;
-    const base = new Date().toISOString().slice(0, 10);
-    const row: Activity = {
-      id: rid(),
-      projectId: DEMO_PROJECT_ID,
-      code: `A-${String(Math.floor(Math.random() * 900 + 100))}`,
-      name: 'Ny aktivitet',
-      start: base,
-      end: base,
-      durationDays: 1,
-      color: '#60a5fa',
-      status: 'planned',
-      rowVersion: 1,
-    };
-    await repoRef.current.create(row);
-    setRows(prev => [...prev, row]);
-  }
-
-  async function deleteSelected() {
-    if (!repoRef.current || sel.rows.length === 0) return;
-    const ids = sel.rows.map(i => rows[i]?.id).filter(Boolean) as string[];
-    for (const id of ids) await repoRef.current.delete(id);
-    setRows(prev => prev.filter(r => !ids.includes(r.id)));
-    setSel({ rows: [], cols: [] });
-  }
-
-  function exportCSV() {
-    const header = cols.map(c => c.header).join(',');
-    const lines = rows.map(r => cols.map(c => csvSafe((r as any)[c.id])).join(','));
-    const csv = [header, ...lines].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'activities.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-}
-
-function addDaysISO(dateISO: string, days: number): string {
-  const d = new Date(dateISO);
-  const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + days));
-  const y = nd.getUTCFullYear();
-  const m = String(nd.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(nd.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function csvSafe(v: any) {
-  if (v == null) return '';
-  const s = String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
 }
